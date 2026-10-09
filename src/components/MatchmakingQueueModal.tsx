@@ -32,11 +32,13 @@ export const MatchmakingQueueModal: React.FC<MatchmakingQueueModalProps> = ({
   // Sync initial timer and register in queue
   useEffect(() => {
     if (isOpen) {
-      setElapsedSeconds(initialElapsedSeconds);
-      setIsCancelled(false);
-      if (user) {
-        enterMatchmakingQueue(user.id, gameId, stakeCoins);
-      }
+      setTimeout(() => {
+        setElapsedSeconds(initialElapsedSeconds);
+        setIsCancelled(false);
+        if (user) {
+          enterMatchmakingQueue(user.id, gameId, stakeCoins);
+        }
+      }, 0);
     }
   }, [isOpen, initialElapsedSeconds, gameId, stakeCoins, user]);
 
