@@ -312,70 +312,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-neutral-100 flex flex-col pb-24">
       
-      {/* 1. PERSISTENT TOP HEADER */}
-      <header className="sticky top-0 z-30 w-full bg-[#0A0A0A]/90 backdrop-blur-xl border-b border-white/[0.08] px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        
-        {/* Left: ApexClash Logo mark ('AC' monogram in gold gradient + "ApexClash" text) */}
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#F5A623] to-[#DC2626] p-[1.5px] flex-shrink-0">
-            <div className="w-full h-full bg-[#0A0A0A] rounded-[10px] flex items-center justify-center">
-              <span className="font-mono font-black text-xs bg-gradient-to-r from-[#F5A623] to-[#E0921A] bg-clip-text text-transparent">
-                AC
-              </span>
-            </div>
-          </div>
-          <div className="flex flex-col">
-            <span className="font-mono font-black text-sm tracking-wider text-white">
-              Apex<span className="text-[#F5A623]">Clash</span>
-            </span>
-            <span className="text-[9px] font-mono text-emerald-400 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              18+ Verified Arena
-            </span>
-          </div>
-        </div>
-
-        {/* Right: Quick Coin Balance Pill, User Tag, and Sign Out */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          
-          {/* Quick Coin Balance Pill */}
-          <div className="flex items-center bg-white/[0.04] border border-[#F5A623]/30 rounded-xl py-1 px-2.5">
-            <button
-              type="button"
-              onClick={() => setCurrentTab('wallet')}
-              className="flex items-center gap-2 cursor-pointer text-left"
-              title="Click to view Wallet"
-            >
-              <span className="w-2 h-2 rounded-full bg-[#F5A623] shadow-[0_0_8px_#F5A623]" />
-              <div className="flex items-baseline gap-1 font-mono">
-                <span className="text-xs font-black text-[#F5A623] tabular-nums">
-                  {availableCoins}
-                </span>
-                <span className="text-[10px] text-neutral-400">Coins</span>
-              </div>
-            </button>
-          </div>
-
-          {/* User Tag with Username */}
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.06] font-mono text-xs text-white">
-            <UserIcon className="w-3.5 h-3.5 text-[#F5A623]" />
-            <span className="truncate max-w-[120px]">{effectiveUsername}</span>
-          </div>
-
-          {/* Subtle Sign Out Button */}
-          <button
-            type="button"
-            onClick={() => signOut()}
-            className="py-1.5 px-3 rounded-xl text-xs font-mono font-bold text-neutral-400 hover:text-white hover:bg-white/[0.06] border border-white/[0.08] transition-colors flex items-center gap-1 cursor-pointer"
-            title="Sign Out"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Sign Out</span>
-          </button>
-        </div>
-
-      </header>
-
       {/* Notification Toast */}
       {activeNotification && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
@@ -513,11 +449,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/[0.08] flex flex-col justify-between font-mono">
                 <span className="text-xs text-neutral-400 uppercase">Best Game</span>
-                <span className={`text-xl font-black mt-2 truncate ${((user.won_matches || 0) > 0 || activityList.length > 0) ? 'text-white' : 'text-white/40 font-normal'}`}>
-                  {((user.won_matches || 0) > 0 || activityList.length > 0) ? 'Naija Whot' : 'None yet'}
+                <span className="text-xl font-black mt-2 truncate text-white/40 font-normal">
+                  —
                 </span>
                 <span className="text-[10px] text-neutral-400 mt-1">
-                  {((user.won_matches || 0) > 0 || activityList.length > 0) ? 'Most frequent discipline' : 'No matches played'}
+                  No matches played
                 </span>
               </div>
             </div>
