@@ -142,13 +142,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    if (onAuthSubmit && (mode === 'signup' || mode === 'signin')) {
-      await onAuthSubmit(e, { email, password, username, mode });
-      return;
-    }
-
     if (mode === 'signup') {
-      if (!username.trim() || !email.trim() || !password) {
+      if (!username.trim() || !email.trim() || !password || !confirmPassword) {
         setErrorMessage('Please fill in all registration fields.');
         return;
       }
@@ -164,7 +159,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setErrorMessage('Passwords do not match. Please re-enter.');
         return;
       }
+    }
 
+    if (onAuthSubmit && (mode === 'signup' || mode === 'signin')) {
+      await onAuthSubmit(e, { email, password, username, mode });
+      return;
+    }
+
+    if (mode === 'signup') {
       setSubmitting(true);
       const res = await signUp(email, password, username);
       setSubmitting(false);

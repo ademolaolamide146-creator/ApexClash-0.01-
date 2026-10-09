@@ -34,7 +34,11 @@ export const ErrorCard: React.FC<ErrorCardProps> = ({
       setSecondsLeft((prev) => {
         if (prev === null || prev <= 1) {
           clearInterval(interval);
-          if (onDismiss) onDismiss();
+          if (onDismiss) {
+            setTimeout(() => {
+              onDismiss();
+            }, 0);
+          }
           return 0;
         }
         return prev - 1;
