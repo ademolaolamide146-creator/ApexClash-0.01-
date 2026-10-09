@@ -1,0 +1,6 @@
+{
+  "name": "APEXCLASH | Skill-Based PvP Gaming Platform",
+  "description": "Stake, outsmart, and win real Naira in Nigeria with skill-based PvP across Whot, Chess, Trivia, and Ludo. 18+ skill gaming with instant Paystack-ready payouts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

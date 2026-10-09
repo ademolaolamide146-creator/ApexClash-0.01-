@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: #0A0A0A;
+    color: #F5F5F5;
+  }
+  
+  .font-mono, .mono {
+    font-family: 'DM Mono', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom styling tokens */
+.bg-gold-gradient {
+  background: linear-gradient(135deg, #F5A623 0%, #E0921A 100%);
+}
+
+.text-gold-gradient {
+  background: linear-gradient(135deg, #F5A623 0%, #FDD385 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.card-surface {
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+}
+
+.card-surface-hover:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(245, 166, 35, 0.25);
+}
