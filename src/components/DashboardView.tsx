@@ -313,80 +313,64 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     <div className="min-h-screen bg-[#0A0A0A] text-neutral-100 flex flex-col pb-24">
       
       {/* 1. PERSISTENT TOP HEADER */}
-      <header className="sticky top-0 z-30 w-full bg-[#0A0A0A]/95 backdrop-blur-md border-b border-white/[0.08] px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <header className="sticky top-0 z-30 w-full bg-[#0A0A0A]/90 backdrop-blur-xl border-b border-white/[0.08] px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         
-        {/* Left: User Avatar & Username */}
-        <div className="flex items-center gap-3">
+        {/* Left: ApexClash Logo mark ('AC' monogram in gold gradient + "ApexClash" text) */}
+        <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#F5A623] to-[#DC2626] p-[1.5px] flex-shrink-0">
-            <div className="w-full h-full bg-[#0A0A0A] rounded-[10px] flex items-center justify-center text-white">
-              <span className="font-mono font-bold text-xs text-[#F5A623]">
-                {effectiveUsername.slice(0, 2).toUpperCase()}
+            <div className="w-full h-full bg-[#0A0A0A] rounded-[10px] flex items-center justify-center">
+              <span className="font-mono font-black text-xs bg-gradient-to-r from-[#F5A623] to-[#E0921A] bg-clip-text text-transparent">
+                AC
               </span>
             </div>
           </div>
           <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-white tracking-tight truncate max-w-[120px] sm:max-w-[180px] font-mono">
-                {effectiveUsername}
-              </span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Online" />
-            </div>
-            <span className="text-[10px] text-neutral-400 font-mono">
-              Rating: 1,480 · 18+ Verified
+            <span className="font-mono font-black text-sm tracking-wider text-white">
+              Apex<span className="text-[#F5A623]">Clash</span>
+            </span>
+            <span className="text-[9px] font-mono text-emerald-400 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              18+ Verified Arena
             </span>
           </div>
         </div>
 
-        {/* Right: Quick Coin Balance Pill with '+' Deposit Button & Action Icons */}
+        {/* Right: Quick Coin Balance Pill, User Tag, and Sign Out */}
         <div className="flex items-center gap-2 sm:gap-3">
           
-          {/* Quick Balance Pill */}
-          <div className="flex items-center bg-white/[0.04] border border-[#F5A623]/30 rounded-xl p-1 pl-2.5">
+          {/* Quick Coin Balance Pill */}
+          <div className="flex items-center bg-white/[0.04] border border-[#F5A623]/30 rounded-xl py-1 px-2.5">
             <button
               type="button"
               onClick={() => setCurrentTab('wallet')}
-              className="flex items-center gap-1.5 cursor-pointer text-left mr-1.5"
-              title="Click to view Dual-Balance Wallet"
+              className="flex items-center gap-2 cursor-pointer text-left"
+              title="Click to view Wallet"
             >
-              <div className="w-5 h-5 rounded-full bg-gradient-to-r from-[#F5A623] to-[#E0921A] flex items-center justify-center text-[#0A0A0A]">
-                <Coins className="w-3 h-3 stroke-[2.5]" />
+              <span className="w-2 h-2 rounded-full bg-[#F5A623] shadow-[0_0_8px_#F5A623]" />
+              <div className="flex items-baseline gap-1 font-mono">
+                <span className="text-xs font-black text-[#F5A623] tabular-nums">
+                  {availableCoins}
+                </span>
+                <span className="text-[10px] text-neutral-400">Coins</span>
               </div>
-              <div className="flex flex-col leading-none">
-                <div className="flex items-baseline gap-1">
-                  <span className="font-mono text-xs font-black text-[#F5A623] tabular-nums">
-                    {availableCoins}
-                  </span>
-                  <span className="text-[9px] text-neutral-400 font-mono">AC</span>
-                </div>
-                {lockedCoins > 0 && (
-                  <span className="text-[8px] text-[#DC2626] font-mono font-bold">
-                    +{lockedCoins} locked
-                  </span>
-                )}
-              </div>
-            </button>
-
-            {/* Quick '+' Deposit Button */}
-            <button
-              type="button"
-              onClick={() => setIsDepositModalOpen(true)}
-              className="w-6 h-6 rounded-lg bg-[#F5A623] hover:bg-[#E0921A] text-black flex items-center justify-center transition-colors cursor-pointer"
-              title="Quick Fund Naira via Paystack"
-              aria-label="Fund Wallet"
-            >
-              <Plus className="w-3.5 h-3.5 stroke-[3]" />
             </button>
           </div>
 
-          {/* Sign Out Trigger */}
+          {/* User Tag with Username */}
+          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.06] font-mono text-xs text-white">
+            <UserIcon className="w-3.5 h-3.5 text-[#F5A623]" />
+            <span className="truncate max-w-[120px]">{effectiveUsername}</span>
+          </div>
+
+          {/* Subtle Sign Out Button */}
           <button
             type="button"
             onClick={() => signOut()}
-            className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-white/[0.06] border border-transparent hover:border-white/[0.08] transition-colors cursor-pointer"
+            className="py-1.5 px-3 rounded-xl text-xs font-mono font-bold text-neutral-400 hover:text-white hover:bg-white/[0.06] border border-white/[0.08] transition-colors flex items-center gap-1 cursor-pointer"
             title="Sign Out"
-            aria-label="Sign Out"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">Sign Out</span>
           </button>
         </div>
 
@@ -427,279 +411,126 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <>
             {/* ==================== TAB 1: HOME ==================== */}
         {currentTab === 'home' && (
-          <div className="space-y-8 animate-fade-in">
+          <div className="space-y-8 animate-fade-in pb-16">
             
-            {/* Hero Card: Combined Net Worth & Welcome */}
+            {/* 1. Greeting & Player ID Card */}
             <div className="p-6 md:p-8 rounded-2xl bg-gradient-to-br from-[#1A1813] via-[#121212] to-[#0A0A0A] border border-[#F5A623]/30 relative overflow-hidden flex flex-col justify-between shadow-2xl">
               <div className="absolute top-0 right-0 w-80 h-80 bg-[#F5A623]/8 rounded-full blur-3xl pointer-events-none" />
 
               <div>
-                <div className="flex flex-wrap items-center gap-2 mb-2">
-                  <span className="text-xs uppercase tracking-wider font-semibold text-[#F5A623] font-mono flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Apex Arena Contender
-                  </span>
-                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3" />
-                    18+ Verified
-                  </span>
-                  <span className="text-[11px] font-mono text-neutral-400">
-                    100 Coins = ₦1,000 (1 AC = ₦10)
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-                  {/* Left: Combined Net Worth */}
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                   <div>
-                    <span className="text-xs text-neutral-400 font-mono uppercase block mb-1">
-                      Combined Net Worth
-                    </span>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl sm:text-4xl font-black font-mono text-white tabular-nums">
-                        {totalCoins}
-                      </span>
-                      <span className="text-sm font-bold text-[#F5A623] font-mono">APEX COINS</span>
-                    </div>
-                    <div className="text-base font-mono text-neutral-300 mt-0.5">
-                      ≈ ₦{totalNaira.toLocaleString()} NGN
-                    </div>
-
-                    <div className="flex items-center gap-4 mt-3 text-xs font-mono">
-                      <span className="text-neutral-400">
-                        Spendable: <strong className="text-white">{availableCoins} AC</strong>
-                      </span>
-                      {lockedCoins > 0 && (
-                        <span className="text-red-400">
-                          Locked: <strong className="text-red-400">{lockedCoins} AC</strong>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Right: Contender Stat Highlights */}
-                  <div className="grid grid-cols-3 gap-2 p-3.5 rounded-xl bg-black/40 border border-white/[0.06] text-center font-mono">
-                    <div>
-                      <span className="text-[10px] text-neutral-400 uppercase block">Won</span>
-                      <span className="text-lg font-bold text-white">{user.won_matches}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-neutral-400 uppercase block">Win Rate</span>
-                      <span className="text-lg font-bold text-[#F5A623]">{user.win_rate}%</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-neutral-400 uppercase block">Rake</span>
-                      <span className="text-lg font-bold text-emerald-400">10%</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Quick Action Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-6 mt-6 border-t border-white/[0.08]">
-                <button
-                  type="button"
-                  onClick={() => setIsDepositModalOpen(true)}
-                  className="py-3 px-3 rounded-xl font-bold text-xs bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-[#0A0A0A] hover:brightness-105 transition-all flex items-center justify-center gap-1.5 shadow-md shadow-[#F5A623]/20 cursor-pointer"
-                >
-                  <ArrowDownLeft className="w-4 h-4 text-[#0A0A0A]" />
-                  <span>Deposit Naira</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsWithdrawModalOpen(true)}
-                  className="py-3 px-3 rounded-xl font-bold text-xs bg-white/[0.06] hover:bg-white/[0.1] text-white border border-white/[0.1] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <ArrowUpRight className="w-4 h-4 text-white" />
-                  <span>Withdraw</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentTab('arena')}
-                  className="py-3 px-3 rounded-xl font-bold text-xs bg-white/[0.06] hover:bg-white/[0.1] text-white border border-white/[0.1] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <Swords className="w-4 h-4 text-[#F5A623]" />
-                  <span>Quick Arena Play</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={onOpenWhatsApp}
-                  className="py-3 px-3 rounded-xl font-bold text-xs bg-[#25D366] hover:bg-[#20BD5A] text-black transition-all flex items-center justify-center gap-1.5 shadow-md shadow-[#25D366]/20 cursor-pointer"
-                >
-                  <Share2 className="w-4 h-4 text-black" />
-                  <span>Invite WhatsApp</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Active Staked Matches Banner (if any match currently in progress) */}
-            {activeMatches.length > 0 && (
-              <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-[#200D0D] to-[#121212] border border-[#DC2626]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-pulse-slow">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#DC2626]/20 border border-[#DC2626]/40 flex items-center justify-center text-[#DC2626] flex-shrink-0 mt-0.5">
-                    <Clock className="w-5 h-5 animate-spin" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs uppercase font-mono font-bold text-[#DC2626]">
-                        LIVE MATCH IN PROGRESS
-                      </span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#DC2626]/20 text-red-300">
-                        {activeMatches[0].stakeCoins} AC LOCKED
-                      </span>
-                    </div>
-                    <h4 className="text-sm font-bold text-white mt-0.5">
-                      {activeMatches[0].gameId.toUpperCase()} Duel vs {activeMatches[0].opponentName}
-                    </h4>
-                    <p className="text-xs text-neutral-400 font-mono">
-                      Pot: {activeMatches[0].potCoins} AC · Winner takes {Math.floor(activeMatches[0].potCoins * 0.9)} AC (10% platform fee)
+                    <h1 className="text-2xl sm:text-3xl font-black text-white font-mono tracking-tight">
+                      Welcome back, {effectiveUsername}
+                    </h1>
+                    <p className="text-xs text-neutral-400 font-mono mt-1">
+                      Ready for high-stakes peer-to-peer competition in Nigeria.
                     </p>
                   </div>
+
+                  {/* Rank Badge */}
+                  <div className="px-3 py-1.5 rounded-xl bg-[#F5A623]/10 border border-[#F5A623]/30 text-[#F5A623] font-mono text-xs font-bold flex items-center gap-1.5">
+                    <Crown className="w-4 h-4" />
+                    <span>Bronze I • 1200 Elo</span>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-start sm:self-auto">
-                  <button
-                    type="button"
-                    onClick={() => handleResumeMatch(activeMatches[0])}
-                    className="py-2 px-4 rounded-xl text-xs font-bold bg-[#DC2626] hover:bg-[#B91C1C] text-white transition-colors cursor-pointer"
-                  >
-                    Resume Match
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSettleDemoMatch(activeMatches[0].id, 'win')}
-                    className="py-2 px-3 rounded-xl text-xs font-bold bg-[#F5A623] hover:bg-[#E0921A] text-black transition-colors cursor-pointer"
-                    title="Simulate Win"
-                  >
-                    Win
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSettleDemoMatch(activeMatches[0].id, 'draw')}
-                    className="py-2 px-3 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-                    title="Simulate 100% Draw Refund"
-                  >
-                    Draw
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Featured Game Carousels/Cards */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-bold text-white tracking-tight">
-                    Featured Launch Disciplines
-                  </h3>
-                  <p className="text-xs text-neutral-400">
-                    Provably-fair, server-authoritative skill gaming across Nigeria
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setCurrentTab('arena')}
-                  className="text-xs text-[#F5A623] hover:underline font-mono flex items-center gap-1"
-                >
-                  <span>View All In Arena</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {[
-                  {
-                    id: 'whot' as const,
-                    name: 'Naija Whot',
-                    rules: 'Hold On 1, Pick Two 2, Whot 20',
-                    img: whotImg,
-                    category: 'Card Strategy',
-                  },
-                  {
-                    id: 'chess' as const,
-                    name: 'Speed Chess',
-                    rules: 'FIDE Rapid Blitz Clock & Anti-Bot',
-                    img: chessImg,
-                    category: 'Pure Intellect',
-                  },
-                  {
-                    id: 'trivia' as const,
-                    name: 'Speed Trivia',
-                    rules: '10 speed-scored questions & buzzer clock',
-                    img: triviaImg,
-                    category: 'Afro Knowledge',
-                  },
-                  {
-                    id: 'ludo' as const,
-                    name: 'Ludo Classic',
-                    rules: '4 tokens, cut mechanics & provably-fair dice',
-                    img: ludoImg,
-                    category: 'Tactical Race',
-                  },
-                ].map((game) => (
-                  <div
-                    key={game.id}
-                    className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.18] transition-all flex flex-col justify-between group"
-                  >
-                    <div>
-                      <div className="aspect-[16/10] rounded-xl overflow-hidden mb-3 bg-black">
-                        <img
-                          src={game.img}
-                          alt={game.name}
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                        />
-                      </div>
-                      <span className="text-[10px] font-mono text-[#F5A623] uppercase block">
-                        {game.category}
+                {/* 2. Dual-Balance Overview Card */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 p-5 rounded-xl bg-black/40 border border-white/[0.08]">
+                  
+                  {/* Available Balance */}
+                  <div>
+                    <span className="text-[11px] text-neutral-400 font-mono uppercase block mb-1">
+                      Available Balance (Spendable)
+                    </span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-black font-mono text-[#F5A623] tabular-nums">
+                        {availableCoins}
                       </span>
-                      <h4 className="font-bold text-sm text-white mt-0.5">{game.name}</h4>
-                      <p className="text-xs text-neutral-400 mt-1 line-clamp-2">{game.rules}</p>
-                    </div>
-
-                    <div className="pt-4 mt-4 border-t border-white/[0.06] flex items-center justify-between">
-                      <span className="text-[11px] font-mono text-neutral-400">Min 25 AC (₦250)</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onLaunchMatchQueue
-                            ? onLaunchMatchQueue(game.id, selectedStake)
-                            : handleOpenQueue(game.id, selectedStake)
-                        }
-                        className="py-1.5 px-3 rounded-xl text-xs font-bold bg-[#F5A623] hover:bg-[#E0921A] text-black transition-colors flex items-center gap-1 cursor-pointer"
-                      >
-                        <Play className="w-3 h-3 fill-current" />
-                        <span>Play Now</span>
-                      </button>
+                      <span className="text-xs font-bold text-neutral-300 font-mono">Coins</span>
+                      <span className="text-xs font-mono text-emerald-400 ml-2">
+                        (₦{availableNaira.toLocaleString()})
+                      </span>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
 
-            {/* Recent Activity / Match History */}
-            <div className="space-y-4 pt-6 mt-6 border-t border-white/[0.08]">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-bold text-white tracking-tight">
-                    Recent Activity & Match History
-                  </h3>
-                  <p className="text-xs text-neutral-400">
-                    Verified ledger of peer-to-peer competitions and transactions
-                  </p>
+                  {/* Locked Stakes */}
+                  <div>
+                    <span className="text-[11px] text-neutral-400 font-mono uppercase block mb-1">
+                      Locked Stakes (Active Matches)
+                    </span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-black font-mono text-red-400 tabular-nums">
+                        {lockedCoins}
+                      </span>
+                      <span className="text-xs font-bold text-neutral-300 font-mono">Coins</span>
+                      <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#DC2626]/20 text-red-400 border border-[#DC2626]/30">
+                        Escrow Locked
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                {activityList.length > 0 && (
+
+                {/* Quick Action Buttons */}
+                <div className="grid grid-cols-2 gap-3 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentTab('arena')}
+                    className="py-3 px-4 rounded-xl font-bold text-xs bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-black hover:brightness-105 transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#F5A623]/20 cursor-pointer font-mono"
+                  >
+                    <Swords className="w-4 h-4 fill-current" />
+                    <span>Enter Arena</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => setCurrentTab('wallet')}
-                    className="text-xs text-[#F5A623] hover:underline font-mono flex items-center gap-1"
+                    className="py-3 px-4 rounded-xl font-bold text-xs bg-white/[0.06] hover:bg-white/[0.1] text-white border border-white/[0.1] transition-all flex items-center justify-center gap-2 cursor-pointer font-mono"
                   >
-                    <span>Full Ledger</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
+                    <Coins className="w-4 h-4 text-[#F5A623]" />
+                    <span>Wallet & Ledger</span>
                   </button>
-                )}
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Player Snapshot Stats (3-Column Card) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/[0.08] flex flex-col justify-between font-mono">
+                <span className="text-xs text-neutral-400 uppercase">Matches Played</span>
+                <span className="text-2xl font-black text-white mt-2">
+                  {user.won_matches ? user.won_matches * 2 : 0}
+                </span>
+                <span className="text-[10px] text-emerald-400 mt-1">Verified records</span>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/[0.08] flex flex-col justify-between font-mono">
+                <span className="text-xs text-neutral-400 uppercase">Win Rate</span>
+                <span className="text-2xl font-black text-[#F5A623] mt-2">
+                  {user.win_rate ?? 0}%
+                </span>
+                <span className="text-[10px] text-neutral-400 mt-1">National average 50%</span>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/[0.08] flex flex-col justify-between font-mono">
+                <span className="text-xs text-neutral-400 uppercase">Best Game</span>
+                <span className={`text-xl font-black mt-2 truncate ${((user.won_matches || 0) > 0 || activityList.length > 0) ? 'text-white' : 'text-white/40 font-normal'}`}>
+                  {((user.won_matches || 0) > 0 || activityList.length > 0) ? 'Naija Whot' : 'None yet'}
+                </span>
+                <span className="text-[10px] text-neutral-400 mt-1">
+                  {((user.won_matches || 0) > 0 || activityList.length > 0) ? 'Most frequent discipline' : 'No matches played'}
+                </span>
+              </div>
+            </div>
+
+            {/* 4. Clean Recent Activity Section (Authentic Empty State) */}
+            <div className="space-y-4 pt-4 border-t border-white/[0.08]">
+              <div>
+                <h3 className="text-lg font-bold text-white tracking-tight">
+                  Recent Activity
+                </h3>
+                <p className="text-xs text-neutral-400">
+                  Your latest match history and wallet transactions
+                </p>
               </div>
 
               {activityList.length > 0 ? (
@@ -738,16 +569,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <Swords className="w-6 h-6" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-white">No Match Activity</h4>
+                    <h4 className="text-sm font-bold text-white">No Recent Activity</h4>
                     <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto">
-                      No match activity yet. Head to the Arena to start your first competition!
+                      No recent activity. Head to the Arena to start your first competition!
                     </p>
                   </div>
                   <div className="pt-2">
                     <button
                       type="button"
                       onClick={() => setCurrentTab('arena')}
-                      className="py-2.5 px-5 rounded-xl text-xs font-bold bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-[#0A0A0A] hover:brightness-105 active:scale-[0.98] transition-all flex items-center gap-1.5 mx-auto cursor-pointer shadow-md shadow-[#F5A623]/20"
+                      className="py-2.5 px-5 rounded-xl text-xs font-bold bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-black hover:brightness-105 active:scale-[0.98] transition-all flex items-center gap-1.5 mx-auto cursor-pointer shadow-md shadow-[#F5A623]/20 font-mono"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />
                       <span>Head to Arena</span>
