@@ -55,6 +55,11 @@ interface AuthContextType {
     matchId: string,
     result: 'win' | 'loss' | 'draw'
   ) => Promise<{ success: boolean; payout?: number }>;
+  refundStakeForCancelledMatch: (
+    stakeCoins: number,
+    matchId?: string,
+    reason?: string
+  ) => Promise<{ success: boolean }>;
   updateWalletBalance: (deltaCoins: number) => void;
   isConfiguredWithSupabaseCloud: boolean;
 }
@@ -880,6 +885,99 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const refundStakeForCancelledMatch = async (
+    stakeCoins: number,
+    matchId?: string,
+    reason: string = 'WhatsApp challenge cancelled'
+  ): Promise<{ success: boolean }> => {
+    if (!user) return { success: false };
+
+    const currentLocked = user.locked_balance_coins ?? 0;
+    const newLocked = Math.max(0, currentLocked - stakeCoins);
+    const newAvailable = user.wallet_balance_coins + stakeCoins;
+
+    const refundTx: Transaction = {
+      id: `tx_${Date.now()}`,
+      user_id: user.id,
+      type: 'match_refund',
+      amount_coins: stakeCoins,
+      amount_naira: stakeCoins * 10,
+      status: 'completed',
+      reference_id: matchId || `REFUND-${Date.now()}`,
+      description: `Stake Refunded: 100% of ${stakeCoins} AC unlocked (${reason})`,
+      created_at: new Date().toISOString(),
+      match_id: matchId,
+    };
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from('wallets')
+          .update({ balance: newAvailable, locked_balance: newLocked })
+          .eq('user_id', user.id);
+        await supabase.from('transactions').insert([refundTx]);
+        if (matchId) {
+          await supabase
+            .from('matches')
+            .update({ status: 'cancelled' })
+            .eq('id', matchId);
+        }
+      } catch (err) {
+        console.warn('refundStakeForCancelledMatch Supabase error:', err);
+      }
+    } else {
+      const users = getLocalUsers();
+      const updated = users.map((u) =>
+        u.id === user.id
+          ? {
+              ...u,
+              wallet_balance_coins: newAvailable,
+              locked_balance_coins: newLocked,
+            }
+          : u
+      );
+      saveLocalUsers(updated);
+      saveLocalTransaction(refundTx);
+
+      const sess = getLocalSession();
+      if (sess && sess.user.id === user.id) {
+        setLocalSession({
+          user: {
+            ...sess.user,
+            wallet_balance_coins: newAvailable,
+            locked_balance_coins: newLocked,
+          },
+        });
+      }
+
+      if (matchId) {
+        const raw = localStorage.getItem('apex_clash_private_rooms');
+        if (raw) {
+          const rooms = JSON.parse(raw);
+          const updatedRooms = rooms.map((r: any) =>
+            r.id === matchId ? { ...r, status: 'cancelled' } : r
+          );
+          localStorage.setItem('apex_clash_private_rooms', JSON.stringify(updatedRooms));
+        }
+      }
+    }
+
+    setUser((prev) =>
+      prev
+        ? {
+            ...prev,
+            wallet_balance_coins: newAvailable,
+            wallet_balance_naira: newAvailable * 10,
+            locked_balance_coins: newLocked,
+          }
+        : null
+    );
+
+    setTransactions((prev) => [refundTx, ...prev]);
+
+    return { success: true };
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -899,6 +997,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         withdrawCoins,
         lockStakeForMatch,
         settleMatch,
+        refundStakeForCancelledMatch,
         updateWalletBalance,
         isConfiguredWithSupabaseCloud: isSupabaseConfigured,
       }}

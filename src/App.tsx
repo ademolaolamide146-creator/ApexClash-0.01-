@@ -133,11 +133,14 @@ function MainApp() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
       if (newSession) {
         setCurrentView('dashboard');
         fetchRealDashboardData(newSession);
+      } else if (event === 'SIGNED_OUT') {
+        setSession(null);
+        setCurrentView('landing');
       }
     });
 
@@ -306,6 +309,14 @@ function MainApp() {
       handleOpenAuth('signin');
       return;
     }
+    // Strict Balance Check: Block 0-balance or insufficient players from auto-queueing
+    const availableBalance = realWallet?.balance ?? 0;
+    if (availableBalance < stake) {
+      setQuickQueueConfig(null);
+      setCurrentView('dashboard');
+      setDashboardTab('arena');
+      return;
+    }
     setQuickQueueConfig({ gameId, stake });
     setCurrentView('dashboard');
     setDashboardTab('arena');
@@ -356,18 +367,26 @@ function MainApp() {
           setIntendedTargetView('signup');
           setShowAgeModal(true);
         }}
-        activeTab={currentView}
-        setActiveTab={setCurrentView}
+        activeTab={user || session ? 'dashboard' : currentView}
+        setActiveTab={(view) => {
+          if (!user && !session) {
+            setCurrentView(view);
+          }
+        }}
         onOpenWhatsAppModal={() => setWhatsAppModalOpen(true)}
         onNavigateDashboardTab={(tab) => {
           setCurrentView('dashboard');
           setDashboardTab(tab);
         }}
+        onSignOut={() => {
+          setSession(null);
+          setCurrentView('landing');
+        }}
       />
 
       {/* 2. Main View Content */}
       <main className="flex-1">
-        {currentView === 'dashboard' && (session || user) ? (
+        {user || session ? (
           <DashboardView
             onOpenWhatsApp={() => setWhatsAppModalOpen(true)}
             onLaunchMatchQueue={handleQuickPlay}

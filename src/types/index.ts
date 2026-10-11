@@ -109,7 +109,8 @@ export interface BotRosterEntry {
 }
 
 export type MatchmakingQueueStatus = 'waiting' | 'matched' | 'cancelled' | 'acknowledged';
-export type MatchStatus = 'waiting' | 'in_progress' | 'completed' | 'cancelled';
+export type MatchStatus = 'waiting' | 'in_progress' | 'completed' | 'cancelled' | 'expired';
+
 
 export interface MatchParticipant {
   user_id: string;

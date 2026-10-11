@@ -225,6 +225,7 @@ import {
   UsernameCheckResult,
   GameId,
   MatchData,
+  MatchStatus,
   MatchParticipant,
   BotRosterEntry,
 } from '../types';
@@ -317,6 +318,7 @@ export async function createPrivateRoomRpc(
   }
 
   // Local fallback
+  // Always cache room locally for immediate optimistic retrieval
   const matchId = `MATCH-${gameKey.toUpperCase()}-${roomCode}`;
   const roomData: MatchData = {
     id: matchId,
@@ -351,6 +353,125 @@ export async function createPrivateRoomRpc(
 
   return { matchId };
 }
+
+// 2b. Query all private challenge rooms created by or involving a user
+export async function fetchUserWhatsAppChallenges(userId: string): Promise<MatchData[]> {
+  const EXPIRATION_MS = 15 * 60 * 1000; // 15 minutes window
+  let combined: MatchData[] = [];
+
+  // Local storage rooms first
+  try {
+    const raw = localStorage.getItem(PRIVATE_ROOMS_STORAGE_KEY);
+    if (raw) {
+      const localRooms: MatchData[] = JSON.parse(raw);
+      combined = localRooms.filter((r) => 
+        r.participants?.some((p) => p.user_id === userId)
+      );
+    }
+  } catch {
+    // ignore
+  }
+
+  // Supabase rooms if configured
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('matches')
+        .select('*, match_participants(*)')
+        .eq('is_private', true)
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        data.forEach((row: any) => {
+          const isUserInMatch = 
+            row.creator_id === userId || 
+            row.match_participants?.some((p: any) => p.user_id === userId);
+
+          if (isUserInMatch) {
+            const existingIdx = combined.findIndex((m) => m.id === row.id || m.room_code === row.room_code);
+            const formatted: MatchData = {
+              id: row.id,
+              game_id: (row.game_id || row.game_key || 'whot') as GameId,
+              is_private: true,
+              room_code: row.room_code,
+              stake_amount: row.stake_amount || 100,
+              pot_amount: (row.stake_amount || 100) * 2,
+              fee_amount: Math.floor((row.stake_amount || 100) * 2 * 0.1),
+              payout_amount: Math.floor((row.stake_amount || 100) * 2 * 0.9),
+              status: row.status,
+              participants: row.match_participants || [
+                {
+                  user_id: row.creator_id || userId,
+                  username: 'Host',
+                  color: 'white',
+                  rating: 1500,
+                  location: 'Lagos, Nigeria'
+                }
+              ],
+              created_at: row.created_at || new Date().toISOString()
+            };
+
+            if (existingIdx >= 0) {
+              combined[existingIdx] = formatted;
+            } else {
+              combined.push(formatted);
+            }
+          }
+        });
+      }
+    } catch (err) {
+      console.warn('fetchUserWhatsAppChallenges supabase check:', err);
+    }
+  }
+
+  // Check for expired waiting challenges (older than 15 minutes)
+  const now = Date.now();
+  combined = combined.map((room) => {
+    if (room.status === 'waiting') {
+      const ageMs = now - new Date(room.created_at).getTime();
+      if (ageMs > EXPIRATION_MS) {
+        return { ...room, status: 'expired' as MatchStatus };
+      }
+    }
+    return room;
+  });
+
+  // Sort by created_at desc
+  combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return combined;
+}
+
+// 2c. Cancel a private room
+export async function cancelPrivateRoomRpc(matchId: string, roomCode?: string): Promise<{ success: boolean }> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase
+        .from('matches')
+        .update({ status: 'cancelled' })
+        .eq('id', matchId);
+    } catch (err) {
+      console.warn('cancelPrivateRoomRpc supabase error:', err);
+    }
+  }
+
+  try {
+    const raw = localStorage.getItem(PRIVATE_ROOMS_STORAGE_KEY);
+    if (raw) {
+      const rooms: MatchData[] = JSON.parse(raw);
+      const updated = rooms.map((r) => 
+        (r.id === matchId || (roomCode && r.room_code === roomCode))
+          ? { ...r, status: 'cancelled' as MatchStatus }
+          : r
+      );
+      localStorage.setItem(PRIVATE_ROOMS_STORAGE_KEY, JSON.stringify(updated));
+    }
+  } catch {
+    // ignore
+  }
+
+  return { success: true };
+}
+
 
 // 3. RPC: join_private_room
 export async function joinPrivateRoomRpc(

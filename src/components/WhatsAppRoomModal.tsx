@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Share2, Copy, Check, MessageSquare, Shield, Coins, Sparkles } from 'lucide-react';
+import { X, Share2, Copy, Check, MessageSquare, Shield, Coins, Sparkles, Clock } from 'lucide-react';
 import { GameId, StakeTier } from '../types';
 import { useAuth } from '../context/AuthContext';
 
@@ -187,6 +187,22 @@ export const WhatsAppRoomModal: React.FC<WhatsAppRoomModalProps> = ({
             <p className="text-[10px] text-neutral-500 mt-2 font-mono">
               Transparent 10% rake ({rake} AC) deducted only on match victory. Official draws result in 100% refund with 0% fee.
             </p>
+          </div>
+
+          {/* 15-Minute Expiration Notice Card */}
+          <div className="mt-4 p-3.5 rounded-xl bg-[#25D366]/10 border border-[#25D366]/30 flex items-start gap-3">
+            <Clock className="w-4 h-4 text-[#25D366] flex-shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <div className="text-xs font-bold text-white flex items-center gap-2">
+                <span>15 Minutes Before Expiration</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[#25D366]/20 text-[#25D366] font-bold">
+                  100% Refund
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-300 font-sans leading-relaxed">
+                Your friend has <strong className="text-white">15 minutes</strong> to accept and join your WhatsApp link. If they do not enter within 15 minutes, the room expires automatically and your <span className="text-[#F5A623] font-bold">{selectedStake} Coins</span> will be 100% unlocked and returned to your balance.
+              </p>
+            </div>
           </div>
 
           {/* Room Link Display */}

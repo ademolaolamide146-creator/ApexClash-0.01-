@@ -201,6 +201,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   if (!user) return null;
 
   const handleOpenQueue = (gameId: GameId, stake: number) => {
+    if (availableCoins < stake) {
+      setIsDepositModalOpen(true);
+      return;
+    }
     setQueueModal({
       isOpen: true,
       gameId,
@@ -371,39 +375,44 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                 </div>
 
-                {/* 2. Dual-Balance Overview Card */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 p-5 rounded-xl bg-black/40 border border-white/[0.08]">
-                  
-                  {/* Available Balance */}
+                {/* 2. Balance Overview: Bold Available Balance with Small Locked Stakes UI Below */}
+                <div className="mt-6 p-6 rounded-2xl bg-black/50 border border-white/[0.1] backdrop-blur-sm space-y-4">
+                  {/* Primary Hero: Bold Available Balance */}
                   <div>
-                    <span className="text-[11px] text-neutral-400 font-mono uppercase block mb-1">
-                      Available Balance (Spendable)
-                    </span>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-black font-mono text-[#F5A623] tabular-nums">
-                        {availableCoins}
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-xs text-neutral-400 font-mono uppercase tracking-wider font-semibold">
+                        Available Balance (Spendable)
                       </span>
-                      <span className="text-xs font-bold text-neutral-300 font-mono">Coins</span>
-                      <span className="text-xs font-mono text-emerald-400 ml-2">
-                        (₦{availableNaira.toLocaleString()})
+                      <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    </div>
+                    <div className="flex flex-wrap items-baseline gap-2.5">
+                      <span className="text-4xl sm:text-5xl font-black font-mono text-[#F5A623] tabular-nums tracking-tight">
+                        {availableCoins.toLocaleString()}
+                      </span>
+                      <span className="text-base sm:text-lg font-bold text-white font-mono">
+                        Coins
+                      </span>
+                      <span className="text-sm sm:text-base font-bold font-mono text-emerald-400 ml-1">
+                        ≈ ₦{availableNaira.toLocaleString()}
                       </span>
                     </div>
                   </div>
 
-                  {/* Locked Stakes */}
-                  <div>
-                    <span className="text-[11px] text-neutral-400 font-mono uppercase block mb-1">
-                      Locked Stakes (Active Matches)
-                    </span>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-black font-mono text-red-400 tabular-nums">
-                        {lockedCoins}
+                  {/* Secondary Compact UI: Small Locked Stakes Strip Below */}
+                  <div className="pt-3 border-t border-white/[0.08] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+                    <div className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                      <span className="text-neutral-400">Locked in Matches:</span>
+                      <span className="text-red-400 font-bold tabular-nums">
+                        {lockedCoins.toLocaleString()} Coins
                       </span>
-                      <span className="text-xs font-bold text-neutral-300 font-mono">Coins</span>
-                      <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#DC2626]/20 text-red-400 border border-[#DC2626]/30">
-                        Escrow Locked
+                      <span className="text-neutral-500 text-[11px]">
+                        (₦{lockedNaira.toLocaleString()})
                       </span>
                     </div>
+                    <span className="px-2 py-0.5 rounded text-[10px] bg-red-500/10 text-red-400 border border-red-500/20 font-semibold">
+                      Escrow Protected
+                    </span>
                   </div>
                 </div>
 
@@ -537,6 +546,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             }
             onOpenJoinRoom={() => setPrivateRoomModal({ isOpen: true, mode: 'join' })}
             onOpenDeposit={() => setIsDepositModalOpen(true)}
+            walletBalance={availableCoins}
+            onNavigateTab={(tab) => setCurrentTab(tab)}
           />
         )}
 
@@ -796,9 +807,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           isOpen={Boolean(rulesGameId)}
           gameId={rulesGameId}
           onClose={() => setRulesGameId(null)}
-          onPlayNow={(gId: GameId) => {
+          onPlayNow={() => {
             setRulesGameId(null);
-            handleOpenQueue(gId, selectedStake);
+            setCurrentTab('arena');
           }}
         />
       )}

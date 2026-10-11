@@ -13,10 +13,11 @@ import {
   Users,
   KeyRound,
   CheckCircle2,
+  Trash2,
 } from 'lucide-react';
 import { GameId } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { createPrivateRoomRpc, joinPrivateRoomRpc } from '../lib/supabase';
+import { createPrivateRoomRpc, joinPrivateRoomRpc, cancelPrivateRoomRpc } from '../lib/supabase';
 import { STAKE_TIERS_CONFIG } from './MicroStakePicker';
 import { ErrorCard } from './ErrorCard';
 
@@ -40,7 +41,7 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
   onClose,
   onMatchMatched,
 }) => {
-  const { user, wallet, lockStakeForMatch } = useAuth();
+  const { user, wallet, lockStakeForMatch, refundStakeForCancelledMatch } = useAuth();
   const [tab, setTab] = useState<'create' | 'join'>(initialMode);
 
   // Create state
@@ -50,6 +51,7 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
   const [isRoomCreated, setIsRoomCreated] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [waitingElapsed, setWaitingElapsed] = useState<number>(0);
+  const [isCancelling, setIsCancelling] = useState<boolean>(false);
 
   // Join state
   const [joinCodeInput, setJoinCodeInput] = useState<string>(initialRoomCode);
@@ -66,17 +68,44 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
       setWaitingElapsed(0);
       setJoinError(null);
       setCreateError(null);
+      setIsCancelling(false);
     }
   }, [isOpen, initialMode, initialRoomCode]);
 
-  // Timer in waiting lobby
+  // Timer in waiting lobby (15 minutes = 900 seconds limit)
   useEffect(() => {
     if (!isOpen || !isRoomCreated) return;
     const interval = setInterval(() => {
-      setWaitingElapsed((prev) => prev + 1);
+      setWaitingElapsed((prev) => {
+        const next = prev + 1;
+        // Auto-expire when reaching 15 minutes (900 seconds)
+        if (next >= 900) {
+          clearInterval(interval);
+          handleAutoExpire();
+          return 900;
+        }
+        return next;
+      });
     }, 1000);
     return () => clearInterval(interval);
   }, [isOpen, isRoomCreated]);
+
+  const handleAutoExpire = async () => {
+    await refundStakeForCancelledMatch(selectedStake, undefined, 'WhatsApp room expired after 15 minutes');
+    await cancelPrivateRoomRpc('', roomCode);
+    setCreateError('Challenge room expired after 15 minutes. 100% of your stake has been automatically unlocked and refunded to your wallet.');
+    setIsRoomCreated(false);
+  };
+
+  const handleCancelCreatedRoom = async () => {
+    setIsCancelling(true);
+    await refundStakeForCancelledMatch(selectedStake, undefined, 'WhatsApp challenge cancelled by host');
+    await cancelPrivateRoomRpc('', roomCode);
+    setIsCancelling(false);
+    setIsRoomCreated(false);
+    onClose();
+  };
+
 
   if (!isOpen || !user) return null;
 
@@ -275,9 +304,17 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
           {isRoomCreated ? (
             <div className="space-y-5 my-2">
               <div className="p-5 rounded-2xl bg-white/[0.03] border border-[#25D366]/40 text-center space-y-3">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/30 text-xs font-mono font-bold">
-                  <Clock className="w-3.5 h-3.5 animate-spin" />
-                  <span>Waiting for Friend ({formatTimer(waitingElapsed)})</span>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/30 text-xs font-mono font-bold">
+                    <Clock className="w-3.5 h-3.5 animate-spin" />
+                    <span>Waiting for Friend ({formatTimer(waitingElapsed)})</span>
+                  </div>
+
+                  {/* 15-Minute Expiry Countdown */}
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 text-xs font-mono font-bold">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Expires in: {formatTimer(Math.max(0, 900 - waitingElapsed))}</span>
+                  </div>
                 </div>
 
                 <div className="space-y-1">
@@ -288,6 +325,11 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
                   <span className="text-xs font-mono text-[#F5A623]">
                     {selectedGame.toUpperCase()} Duel · {selectedStake} Coins (₦{(selectedStake * 10).toLocaleString()})
                   </span>
+                </div>
+
+                {/* Expiration Notice Pill */}
+                <div className="p-2.5 rounded-xl bg-black/50 border border-white/[0.08] text-[11px] font-mono text-neutral-300">
+                  ⏳ Challenge expires in <span className="text-[#25D366] font-bold">{formatTimer(Math.max(0, 900 - waitingElapsed))}</span> (15m limit). 100% stake auto-refunded if friend does not join.
                 </div>
 
                 {/* Room Link Display */}
@@ -316,8 +358,19 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
                 <span>Share Challenge to WhatsApp</span>
               </button>
 
+              {/* Cancel Challenge & Refund Stake Button */}
+              <button
+                type="button"
+                onClick={handleCancelCreatedRoom}
+                disabled={isCancelling}
+                className="w-full py-3 px-4 rounded-xl font-mono font-bold text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isCancelling ? 'Refunding Stake...' : 'Cancel Challenge & Refund Stake'}</span>
+              </button>
+
               {/* Fast Test Simulator Button */}
-              <div className="text-center pt-2">
+              <div className="text-center pt-1">
                 <button
                   type="button"
                   onClick={handleSimulateFriendJoined}
@@ -393,6 +446,22 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
                 <div className="flex justify-between text-emerald-400 font-bold pt-1 border-t border-white/[0.06]">
                   <span>Winner Receives (90% after 10% rake):</span>
                   <span>+{currentTier.winCoins} Coins (₦{currentTier.winNaira.toLocaleString()})</span>
+                </div>
+              </div>
+
+              {/* 15-Minute Expiration Notice Card */}
+              <div className="p-3.5 rounded-xl bg-[#25D366]/10 border border-[#25D366]/30 flex items-start gap-3">
+                <Clock className="w-4 h-4 text-[#25D366] flex-shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="text-xs font-bold text-white flex items-center gap-2">
+                    <span>15 Minutes Before Expiration</span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[#25D366]/20 text-[#25D366] font-bold">
+                      100% Refund
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-300 font-sans leading-relaxed">
+                    Your friend has <strong className="text-white">15 minutes</strong> to tap and join your WhatsApp link. If they do not enter within 15 minutes, the room expires automatically and your <span className="text-[#F5A623] font-bold">{selectedStake} Coins</span> will be 100% unlocked and returned to your spendable balance immediately.
+                  </p>
                 </div>
               </div>
 

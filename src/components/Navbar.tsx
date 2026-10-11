@@ -9,6 +9,7 @@ interface NavbarProps {
   setActiveTab: (tab: 'landing' | 'dashboard') => void;
   onOpenWhatsAppModal: () => void;
   onNavigateDashboardTab?: (tab: 'home' | 'arena' | 'rankings' | 'wallet' | 'profile') => void;
+  onSignOut?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -18,6 +19,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   onOpenWhatsAppModal,
   onNavigateDashboardTab,
+  onSignOut,
 }) => {
   const { user, wallet, signOut, is18Verified } = useAuth();
 
@@ -29,7 +31,14 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setActiveTab('landing')}
+            onClick={() => {
+              if (user) {
+                setActiveTab('dashboard');
+                if (onNavigateDashboardTab) onNavigateDashboardTab('home');
+              } else {
+                setActiveTab('landing');
+              }
+            }}
             className="flex items-center gap-2.5 group text-left cursor-pointer focus:outline-none"
           >
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#F5A623] via-[#DC2626] to-[#991B1B] p-[1.5px] shadow-sm shadow-[#F5A623]/20 flex-shrink-0">
@@ -58,58 +67,87 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Zone 2: Navigation Links */}
         <nav className="hidden md:flex items-center gap-6 text-xs font-semibold text-neutral-300 font-mono">
-          <a
-            href="#disciplines"
-            onClick={(e) => {
-              if (activeTab !== 'landing') {
-                setActiveTab('landing');
-              }
-            }}
-            className="hover:text-[#F5A623] transition-colors whitespace-nowrap"
-          >
-            Disciplines
-          </a>
-          <a
-            href="#stakes"
-            onClick={(e) => {
-              if (activeTab !== 'landing') {
-                setActiveTab('landing');
-              }
-            }}
-            className="hover:text-[#F5A623] transition-colors whitespace-nowrap"
-          >
-            Stakes & Rake
-          </a>
-          <a
-            href="#features"
-            onClick={(e) => {
-              if (activeTab !== 'landing') {
-                setActiveTab('landing');
-              }
-            }}
-            className="hover:text-[#F5A623] transition-colors whitespace-nowrap"
-          >
-            WhatsApp Rooms
-          </a>
-          <button
-            type="button"
-            onClick={onOpenWhatsAppModal}
-            className="text-xs text-[#F5A623] hover:underline flex items-center gap-1 font-mono cursor-pointer"
-          >
-            Create Room
-          </button>
-          {user && (
-            <button
-              type="button"
-              onClick={() => setActiveTab(activeTab === 'dashboard' ? 'landing' : 'dashboard')}
-              className={`text-xs font-semibold px-2.5 py-1 rounded-lg border transition-colors cursor-pointer ${
-                activeTab === 'dashboard'
-                  ? 'border-[#F5A623] text-[#F5A623] bg-[#F5A623]/10'
-                  : 'border-white/10 text-neutral-300 hover:text-white'
-              }`}
-            >
-              {activeTab === 'dashboard' ? 'Show Landing' : 'Go to Arena'}
-            </button>
+          {user ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('dashboard');
+                  if (onNavigateDashboardTab) onNavigateDashboardTab('home');
+                }}
+                className="hover:text-[#F5A623] transition-colors whitespace-nowrap cursor-pointer"
+              >
+                Home
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('dashboard');
+                  if (onNavigateDashboardTab) onNavigateDashboardTab('arena');
+                }}
+                className="hover:text-[#F5A623] transition-colors whitespace-nowrap cursor-pointer"
+              >
+                Arena
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('dashboard');
+                  if (onNavigateDashboardTab) onNavigateDashboardTab('rankings');
+                }}
+                className="hover:text-[#F5A623] transition-colors whitespace-nowrap cursor-pointer"
+              >
+                Rankings
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('dashboard');
+                  if (onNavigateDashboardTab) onNavigateDashboardTab('wallet');
+                }}
+                className="hover:text-[#F5A623] transition-colors whitespace-nowrap cursor-pointer"
+              >
+                Wallet
+              </button>
+              <button
+                type="button"
+                onClick={onOpenWhatsAppModal}
+                className="text-[#25D366] hover:underline flex items-center gap-1 font-mono cursor-pointer"
+              >
+                WhatsApp Rooms
+              </button>
+            </>
+          ) : (
+            <>
+              <a
+                href="#disciplines"
+                onClick={() => setActiveTab('landing')}
+                className="hover:text-[#F5A623] transition-colors whitespace-nowrap"
+              >
+                Disciplines
+              </a>
+              <a
+                href="#stakes"
+                onClick={() => setActiveTab('landing')}
+                className="hover:text-[#F5A623] transition-colors whitespace-nowrap"
+              >
+                Stakes & Rake
+              </a>
+              <a
+                href="#features"
+                onClick={() => setActiveTab('landing')}
+                className="hover:text-[#F5A623] transition-colors whitespace-nowrap"
+              >
+                WhatsApp Rooms
+              </a>
+              <button
+                type="button"
+                onClick={onOpenWhatsAppModal}
+                className="text-xs text-[#F5A623] hover:underline flex items-center gap-1 font-mono cursor-pointer"
+              >
+                Create Room
+              </button>
+            </>
           )}
         </nav>
 
@@ -144,8 +182,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
 
               <div
-                onClick={() => setActiveTab('dashboard')}
+                onClick={() => {
+                  setActiveTab('dashboard');
+                  if (onNavigateDashboardTab) onNavigateDashboardTab('profile');
+                }}
                 className="cursor-pointer hidden sm:flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-colors"
+                title="View Profile"
               >
                 <div className="w-6 h-6 rounded-lg bg-[#DC2626]/20 border border-[#DC2626]/40 flex items-center justify-center text-[#DC2626]">
                   <UserIcon className="w-3.5 h-3.5" />
@@ -157,10 +199,14 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <button
                 type="button"
-                onClick={() => signOut()}
+                onClick={async () => {
+                  await signOut();
+                  if (onSignOut) onSignOut();
+                  setActiveTab('landing');
+                }}
                 className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-white/[0.06] border border-transparent hover:border-white/[0.08] transition-colors cursor-pointer"
-                title="Sign Out"
-                aria-label="Sign Out"
+                title="Log Out"
+                aria-label="Log Out"
               >
                 <LogOut className="w-4 h-4" />
               </button>
