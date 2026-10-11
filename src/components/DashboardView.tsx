@@ -158,18 +158,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       if (!user) return;
 
       // 1. Check for Active Matches First:
-      // Query match_participants joined with matches:
-      // SELECT match_id, matches(id, status, game_id, stake_amount, games(key))
-      // FROM match_participants WHERE user_id = user.id AND matches.status = 'in_progress'
       const active = await queryActiveMatchForUser(user.id);
-      if (active && isMounted) {
+      
+      // Strict Validation: Ensure status is 'in_progress' and a valid game ID is found
+      if (active && active.status === 'in_progress' && active.gameId) {
         setMountedActiveMatch(active);
-        return; // Immediately mount active game board without resetting to game list or deducting coins again
+        return; 
       }
 
       // 2. Check Matchmaking Queue:
-      // If no match in progress, query matchmaking_queue for status = 'waiting' and user_id = user.id
       const waitingQueue = await queryMatchmakingQueueForUser(user.id);
+      // Ensure it's not already acknowledged or completed
       if (waitingQueue && isMounted) {
         setQueueModal({
           isOpen: true,
@@ -336,7 +335,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex-1">
         
         {/* ACTIVE GAME BOARD (Immediate Mount upon in-progress match found) */}
-        {mountedActiveMatch ? (
+        {mountedActiveMatch && currentTab === 'arena' ? (
           <ActiveGameBoard
             match={mountedActiveMatch}
             onExit={async () => {
