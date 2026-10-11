@@ -61,6 +61,7 @@ interface AuthContextType {
     reason?: string
   ) => Promise<{ success: boolean }>;
   updateWalletBalance: (deltaCoins: number) => void;
+  refreshUserData: () => Promise<void>;
   isConfiguredWithSupabaseCloud: boolean;
 }
 
@@ -107,18 +108,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadUserData = useCallback(async (userId: string) => {
     if (isSupabaseConfigured && supabase) {
       try {
-        // Query profile & wallet
+        // Query profile safely
         const { data: profile } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', userId)
-          .single();
+          .maybeSingle();
 
-        const { data: walletData } = await supabase
+        // Query wallet safely
+        let { data: walletData } = await supabase
           .from('wallets')
           .select('*')
           .eq('user_id', userId)
-          .single();
+          .maybeSingle();
+
+        // If wallet row doesn't exist yet, bootstrap it
+        if (!walletData && profile) {
+          try {
+            const initialBal = profile.wallet_balance_coins ?? 0;
+            const { data: newWallet } = await supabase
+              .from('wallets')
+              .upsert({
+                user_id: userId,
+                balance: initialBal,
+                locked_balance: 0,
+              })
+              .select('*')
+              .maybeSingle();
+            if (newWallet) {
+              walletData = newWallet;
+            }
+          } catch {
+            // ignore
+          }
+        }
 
         const coins = walletData?.balance ?? profile?.wallet_balance_coins ?? 0;
         const locked = walletData?.locked_balance ?? profile?.locked_balance_coins ?? 0;
@@ -155,12 +178,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } else {
       // Local fallback
+      const localUsers = getLocalUsers();
+      const matched = localUsers.find((u) => u.id === userId);
+      if (matched) {
+        setUser(convertStoredUserToProfile(matched));
+      }
       const txs = getLocalTransactions(userId);
       setTransactions(txs);
       const matches = getLocalActiveMatches();
       setActiveMatches(matches);
     }
   }, []);
+
+  // Public method to explicitly refresh user profile and wallet balance from storage/database
+  const refreshUserData = useCallback(async () => {
+    let targetUserId = user?.id;
+    if (!targetUserId && isSupabaseConfigured && supabase) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          targetUserId = session.user.id;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (!targetUserId) {
+      const localSession = getLocalSession();
+      if (localSession?.user?.id) {
+        targetUserId = localSession.user.id;
+      }
+    }
+    if (targetUserId) {
+      await loadUserData(targetUserId);
+    }
+  }, [user?.id, loadUserData]);
 
   // Initialize session
   useEffect(() => {
@@ -999,6 +1051,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         settleMatch,
         refundStakeForCancelledMatch,
         updateWalletBalance,
+        refreshUserData,
         isConfiguredWithSupabaseCloud: isSupabaseConfigured,
       }}
     >

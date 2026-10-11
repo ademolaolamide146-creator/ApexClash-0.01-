@@ -67,7 +67,7 @@ Every move in Chess, card drawn in Whot, question answered in Trivia, and dice r
         };
       case 'responsible_gaming':
         return {
-          title: 'Responsible Gaming & Deposit Limits',
+          title: 'Responsible Gaming & Player Welfare',
           badge: 'Contender Welfare',
           body: `
 1. Play Within Your Means

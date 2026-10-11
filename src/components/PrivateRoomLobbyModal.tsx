@@ -123,9 +123,9 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
 
   const handleCreateRoom = async () => {
     setCreateError(null);
-    if (wallet.available_coins < selectedStake) {
+    if ((wallet?.available_coins ?? 0) < selectedStake) {
       setCreateError(
-        `Insufficient spendable balance. You have ${wallet.available_coins} Coins, but this room requires ${selectedStake} Coins.`
+        `Insufficient spendable balance. You have ${wallet?.available_coins ?? 0} Coins, but this room requires ${selectedStake} Coins.`
       );
       return;
     }

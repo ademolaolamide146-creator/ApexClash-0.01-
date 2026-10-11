@@ -24,7 +24,7 @@ import {
   Flame,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { GameId, StakeTier, DashboardTab, ActiveMatch, MatchParticipant } from '../types';
+import { GameId, StakeTier, DashboardTab, ActiveMatch, MatchParticipant, SavedBank } from '../types';
 import { BottomNavBar } from './BottomNavBar';
 import { WalletView } from './WalletView';
 import { DepositModal } from './DepositModal';
@@ -35,6 +35,8 @@ import { MatchmakingQueueModal } from './MatchmakingQueueModal';
 import { PrivateRoomLobbyModal } from './PrivateRoomLobbyModal';
 import { MatchVersusModal } from './MatchVersusModal';
 import { ActiveGameBoard } from './ActiveGameBoard';
+import { RankingsView } from './RankingsView';
+import { ProfileView } from './ProfileView';
 import {
   queryActiveMatchForUser,
   queryMatchmakingQueueForUser,
@@ -59,6 +61,8 @@ interface DashboardViewProps {
   realWallet?: { balance: number; locked_balance: number };
   realTransactions?: any[];
   onRefreshData?: () => void;
+  savedBank?: SavedBank | null;
+  onUpdateSavedBank?: (bank: SavedBank) => void;
 }
 
 const STAKE_TIERS: StakeTier[] = [
@@ -80,6 +84,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   realWallet,
   realTransactions,
   onRefreshData,
+  savedBank,
+  onUpdateSavedBank,
 }) => {
   const { user, wallet, activeMatches, signOut, settleMatch, lockStakeForMatch } = useAuth();
   const [currentTab, setCurrentTab] = useState<DashboardTab>(initialTab);
@@ -552,230 +558,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         )}
 
         {/* ==================== TAB 3: RANKINGS ==================== */}
-        {currentTab === 'rankings' && (
-          <div className="space-y-8 animate-fade-in pb-20">
-            <div>
-              <span className="text-xs uppercase tracking-wider font-semibold text-[#F5A623] font-mono flex items-center gap-1.5 mb-1">
-                <Crown className="w-3.5 h-3.5" />
-                Nigerian National Leaderboard
-              </span>
-              <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                Top Skill Contenders
-              </h1>
-              <p className="text-xs text-neutral-400 mt-1">
-                Ranked by net competitive earnings and tournament win rates across Lagos, Abuja, and Port Harcourt.
-              </p>
-            </div>
-
-            {/* Leaderboard Table */}
-            <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.08] overflow-x-auto">
-              <table className="w-full text-left text-xs font-mono">
-                <thead>
-                  <tr className="border-b border-white/[0.08] text-neutral-400 pb-3">
-                    <th className="pb-3 font-semibold">Rank</th>
-                    <th className="pb-3 font-semibold">Player</th>
-                    <th className="pb-3 font-semibold">Region</th>
-                    <th className="pb-3 font-semibold">Favorite Title</th>
-                    <th className="pb-3 font-semibold text-right">Won Coins</th>
-                    <th className="pb-3 font-semibold text-right">Win Rate</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/[0.04]">
-                  {[
-                    { rank: 1, name: 'Chukwudi_Grandmaster', region: 'Lagos Island', game: 'Speed Chess', coins: 14200, winRate: 78, badge: '🥇' },
-                    { rank: 2, name: 'Ibrahim_WhotKing', region: 'Abuja FCT', game: 'Naija Whot', coins: 11950, winRate: 74, badge: '🥈' },
-                    { rank: 3, name: 'Ngozi_QuizQueen', region: 'Port Harcourt', game: 'Speed Trivia', coins: 9400, winRate: 71, badge: '🥉' },
-                    { rank: 4, name: 'Tayo_LudoGeneral', region: 'Ibadan', game: 'Ludo Classic', coins: 7800, winRate: 68 },
-                    { rank: 5, name: `${effectiveUsername} (You)`, region: 'Lagos', game: 'Speed Chess', coins: user?.won_matches ? user.won_matches * 180 : 0, winRate: user?.win_rate ?? 0, isMe: true },
-                    { rank: 6, name: 'Emeka_Tactician', region: 'Enugu', game: 'Naija Whot', coins: 3100, winRate: 62 },
-                    { rank: 7, name: 'Fatima_SpeedBuzzer', region: 'Kano', game: 'Speed Trivia', coins: 2850, winRate: 59 },
-                  ].map((row) => (
-                    <tr
-                      key={row.rank}
-                      className={`hover:bg-white/[0.02] transition-colors ${
-                        row.isMe ? 'bg-[#F5A623]/10 font-bold text-white' : 'text-neutral-300'
-                      }`}
-                    >
-                      <td className="py-3.5 flex items-center gap-1.5">
-                        <span className="font-bold text-white">{row.rank}</span>
-                        {row.badge && <span>{row.badge}</span>}
-                      </td>
-                      <td className="py-3.5">
-                        <span className="font-semibold text-white">{row.name}</span>
-                        {row.isMe && (
-                          <span className="ml-1.5 px-1.5 py-0.2 rounded text-[9px] bg-[#F5A623] text-black font-bold">
-                            YOU
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3.5 text-neutral-400">{row.region}</td>
-                      <td className="py-3.5 text-[#F5A623]">{row.game}</td>
-                      <td className="py-3.5 text-right font-black text-white tabular-nums">
-                        {row.coins.toLocaleString()} AC
-                      </td>
-                      <td className="py-3.5 text-right text-emerald-400 tabular-nums">
-                        {row.winRate}%
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        {currentTab === 'rankings' && <RankingsView />}
 
         {/* ==================== TAB 4: WALLET ==================== */}
         {currentTab === 'wallet' && (
           <WalletView
             onOpenDeposit={() => setIsDepositModalOpen(true)}
             onOpenWithdraw={() => setIsWithdrawModalOpen(true)}
-            onResumeMatch={handleResumeMatch}
+            savedBank={savedBank}
+            realWallet={realWallet}
+            realTransactions={activityList}
+            onRefreshData={onRefreshData}
           />
         )}
 
         {/* ==================== TAB 5: PROFILE ==================== */}
         {currentTab === 'profile' && (
-          <div className="space-y-8 animate-fade-in pb-20">
-            <div>
-              <span className="text-xs uppercase tracking-wider font-semibold text-[#F5A623] font-mono flex items-center gap-1.5 mb-1">
-                <UserIcon className="w-3.5 h-3.5" />
-                Player Profile & Governance
-              </span>
-              <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                Contender Account
-              </h1>
-              <p className="text-xs text-neutral-400 mt-1">
-                Identity verification, security settings, and responsible gaming limits.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
-              {/* Profile Card */}
-              <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#F5A623] via-[#DC2626] to-[#991B1B] p-[2px]">
-                    <div className="w-full h-full bg-[#0A0A0A] rounded-[14px] flex items-center justify-center">
-                      <span className="text-xl font-black font-mono text-[#F5A623]">
-                        {effectiveUsername.slice(0, 2).toUpperCase()}
-                      </span>
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-white font-mono">{effectiveUsername}</h3>
-                    <p className="text-xs text-neutral-400">{user.email}</p>
-                    <div className="mt-1.5 flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                        18+ Verified Contender
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-white/[0.06] space-y-2 text-xs font-mono">
-                  <div className="flex justify-between text-neutral-400">
-                    <span>Member Since:</span>
-                    <span className="text-white">October 2026</span>
-                  </div>
-                  <div className="flex justify-between text-neutral-400">
-                    <span>Fair Play Status:</span>
-                    <span className="text-emerald-400 font-bold">Pristine (No Violations)</span>
-                  </div>
-                  <div className="flex justify-between text-neutral-400">
-                    <span>Anti-Double-Spend Escrow:</span>
-                    <span className="text-[#F5A623] font-bold">Active</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Responsible Gaming & Limits */}
-              <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-4">
-                <div className="flex items-center gap-2">
-                  <ShieldAlert className="w-4 h-4 text-[#F5A623]" />
-                  <h3 className="text-sm font-bold text-white">Responsible Gaming Controls</h3>
-                </div>
-                <p className="text-xs text-neutral-400 leading-relaxed">
-                  Protect your budget with automatic daily loss caps and cool-down breaks in accordance with Nigerian esports standards.
-                </p>
-
-                <div className="space-y-3 pt-2">
-                  <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] flex items-center justify-between text-xs font-mono">
-                    <span className="text-neutral-300">Daily Stake Ceiling</span>
-                    <span className="text-[#F5A623] font-bold">5,000 Coins (₦50,000)</span>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] flex items-center justify-between text-xs font-mono">
-                    <span className="text-neutral-300">Self-Exclusion Cooling Period</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveNotification(
-                          'Self-exclusion notice: Take a 24-hour or 7-day cooldown anytime. Contact support@apexclash.ng for immediate manual lockout.'
-                        );
-                        setTimeout(() => setActiveNotification(null), 6000);
-                      }}
-                      className="text-xs text-red-400 hover:underline cursor-pointer"
-                    >
-                      Request Pause
-                    </button>
-                  </div>
-                </div>
-
-                <div className="pt-3">
-                  <button
-                    type="button"
-                    onClick={() => signOut()}
-                    className="w-full py-2.5 rounded-xl text-xs font-bold bg-white/[0.06] hover:bg-white/[0.1] text-red-400 border border-white/[0.08] transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    <span>Sign Out of ApexClash</span>
-                  </button>
-                </div>
-              </div>
-
-            </div>
-
-            {/* Legal Documents Quick Viewer Links */}
-            <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.08]">
-              <h4 className="text-xs font-mono font-bold uppercase text-[#F5A623] tracking-wider mb-3">
-                Statutory Compliance & Legal Documentation
-              </h4>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
-                <button
-                  type="button"
-                  onClick={() => onOpenDoc && onOpenDoc('terms')}
-                  className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-[#F5A623]/50 text-neutral-300 hover:text-white transition-colors text-left"
-                >
-                  <span className="block font-bold text-white mb-0.5">Terms of Service</span>
-                  <span className="text-[10px] text-neutral-500">Peer-to-peer rules</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenDoc && onOpenDoc('privacy')}
-                  className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-[#F5A623]/50 text-neutral-300 hover:text-white transition-colors text-left"
-                >
-                  <span className="block font-bold text-white mb-0.5">Privacy Policy</span>
-                  <span className="text-[10px] text-neutral-500">NDPA compliance</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenDoc && onOpenDoc('fair_play')}
-                  className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-[#F5A623]/50 text-neutral-300 hover:text-white transition-colors text-left"
-                >
-                  <span className="block font-bold text-white mb-0.5">Fair Play Charter</span>
-                  <span className="text-[10px] text-neutral-500">Anti-cheat engine</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenDoc && onOpenDoc('responsible_gaming')}
-                  className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-[#F5A623]/50 text-neutral-300 hover:text-white transition-colors text-left"
-                >
-                  <span className="block font-bold text-white mb-0.5">Responsible Gaming</span>
-                  <span className="text-[10px] text-neutral-500">Micro-stakes limits</span>
-                </button>
-              </div>
-            </div>
-          </div>
+          <ProfileView
+            onOpenDoc={onOpenDoc}
+            onSignOut={signOut}
+            realProfileUsername={effectiveUsername}
+            realWallet={realWallet}
+            savedBank={savedBank}
+            onUpdateSavedBank={onUpdateSavedBank}
+          />
         )}
 
           </>
@@ -787,18 +593,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <BottomNavBar
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
-        lockedCoinsCount={wallet.locked_coins}
+        lockedCoinsCount={wallet?.locked_coins ?? 0}
       />
 
       {/* 4. MODALS */}
       <DepositModal
         isOpen={isDepositModalOpen}
         onClose={() => setIsDepositModalOpen(false)}
+        currentBalance={availableCoins}
+        onSuccess={() => {
+          if (onRefreshData) onRefreshData();
+        }}
       />
 
       <WithdrawModal
         isOpen={isWithdrawModalOpen}
         onClose={() => setIsWithdrawModalOpen(false)}
+        savedBank={savedBank ?? null}
+        availableCoins={availableCoins}
+        onBankUpdated={(bank) => {
+          if (onUpdateSavedBank) onUpdateSavedBank(bank);
+        }}
+        onSuccess={() => {
+          if (onRefreshData) onRefreshData();
+        }}
       />
 
       {/* Game Rules "How It Works" Modal */}

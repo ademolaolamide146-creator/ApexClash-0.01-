@@ -170,13 +170,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <div className="flex flex-col">
                   <div className="flex items-baseline gap-1">
                     <span className="font-mono text-xs font-bold text-[#F5A623] tabular-nums">
-                      {wallet.available_coins}
+                      {wallet?.available_coins ?? 0}
                     </span>
                     <span className="text-[10px] text-neutral-400 font-mono">AC</span>
                   </div>
                   <span className="text-[9px] text-neutral-400 font-mono -mt-1 hidden sm:inline">
-                    ₦{(wallet.available_coins * 10).toLocaleString()}
-                    {wallet.locked_coins > 0 && ` (${wallet.locked_coins} locked)`}
+                    ₦{((wallet?.available_coins ?? 0) * 10).toLocaleString()}
+                    {(wallet?.locked_coins ?? 0) > 0 && ` (${wallet?.locked_coins} locked)`}
                   </span>
                 </div>
               </button>

@@ -65,6 +65,13 @@ export interface BankInfo {
   slug: string;
 }
 
+export interface SavedBank {
+  bank_name: string;
+  bank_code: string;
+  account_number: string;
+  account_name: string;
+}
+
 export interface StakeTier {
   coins: number;
   naira: number;

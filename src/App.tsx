@@ -9,10 +9,10 @@ import { LegalGateModal } from './components/LegalGateModal';
 import { AuthModal } from './components/AuthModal';
 import { LegalModal } from './components/LegalModal';
 import { WhatsAppRoomModal } from './components/WhatsAppRoomModal';
-import { GameId, LegalDocType } from './types';
+import { GameId, LegalDocType, SavedBank } from './types';
 
 function MainApp() {
-  const { user } = useAuth();
+  const { user, refreshUserData } = useAuth();
 
   // 1. 18+ Checklist Verification State (checked from localStorage 'apex_18_verified')
   const [isAgeVerified, setIsAgeVerified] = useState<boolean>(() => {
@@ -32,6 +32,7 @@ function MainApp() {
 
   // Real Supabase database state for Dashboard
   const [realUsername, setRealUsername] = useState<string>('');
+  const [savedBank, setSavedBank] = useState<SavedBank | null>(null);
   const [realWallet, setRealWallet] = useState<{ balance: number; locked_balance: number }>({
     balance: 0,
     locked_balance: 0,
@@ -55,31 +56,65 @@ function MainApp() {
 
   // 2. PURGE ALL DUMMY / DEMO DASHBOARD DATA:
   // When an authenticated session is active, fetch real data from Supabase
-  const fetchRealDashboardData = useCallback(async (activeSession: Session) => {
+  const fetchRealDashboardData = useCallback(async (activeSession?: Session | null) => {
     try {
-      const userId = activeSession.user.id;
-      const userEmail = activeSession.user.email;
-      const fallbackName = userEmail ? userEmail.split('@')[0] : 'Contender';
+      let currentSess = activeSession || session;
+      if (!currentSess) {
+        try {
+          const { data: { session: fetchedSession } } = await supabase.auth.getSession();
+          if (fetchedSession) {
+            currentSess = fetchedSession;
+            setSession(fetchedSession);
+          }
+        } catch {
+          // ignore
+        }
+      }
 
-      // 1. Fetch Profile safely (handle missing record without crashing)
+      const userId = currentSess?.user?.id || user?.id;
+      if (!userId) return;
+
+      const userEmail = currentSess?.user?.email || user?.email;
+      const fallbackName = user?.username || (userEmail ? userEmail.split('@')[0] : 'Contender');
+
+      // 1. Fetch Profile and Bank details safely (handle missing record without crashing)
       let uname = fallbackName;
+      let bankData: SavedBank | null = null;
+      let profileCoins = 0;
+      let profileLocked = 0;
+
       try {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('username')
+          .select('username, email, bank_name, bank_code, account_number, account_name, wallet_balance_coins, locked_balance_coins')
           .eq('id', userId)
           .maybeSingle();
-        if (profile?.username) {
-          uname = profile.username;
+        if (profile) {
+          if (profile.username) uname = profile.username;
+          if (profile.wallet_balance_coins !== undefined && profile.wallet_balance_coins !== null) {
+            profileCoins = profile.wallet_balance_coins;
+          }
+          if (profile.locked_balance_coins !== undefined && profile.locked_balance_coins !== null) {
+            profileLocked = profile.locked_balance_coins;
+          }
+          if (profile.bank_name && profile.account_number) {
+            bankData = {
+              bank_name: profile.bank_name,
+              bank_code: profile.bank_code || '',
+              account_number: profile.account_number,
+              account_name: profile.account_name || '',
+            };
+          }
         }
       } catch {
         // use fallback
       }
       setRealUsername(uname);
+      setSavedBank(bankData);
 
       // 2. Fetch Real Wallet safely (handle missing record without crashing)
-      let bal = 0;
-      let lockedBal = 0;
+      let bal = user?.wallet_balance_coins ?? profileCoins;
+      let lockedBal = user?.locked_balance_coins ?? profileLocked;
       try {
         const { data: wallet } = await supabase
           .from('wallets')
@@ -87,11 +122,22 @@ function MainApp() {
           .eq('user_id', userId)
           .maybeSingle();
         if (wallet) {
-          bal = wallet.balance ?? 0;
-          lockedBal = wallet.locked_balance ?? 0;
+          bal = wallet.balance ?? profileCoins;
+          lockedBal = wallet.locked_balance ?? profileLocked;
+        } else {
+          // If no wallet row yet in Supabase, create/upsert it
+          try {
+            await supabase.from('wallets').upsert({
+              user_id: userId,
+              balance: bal,
+              locked_balance: lockedBal,
+            });
+          } catch {
+            // ignore
+          }
         }
       } catch {
-        // use fallback 0
+        // use fallback
       }
 
       setRealWallet({
@@ -118,7 +164,19 @@ function MainApp() {
     } catch (err) {
       console.warn('Error fetching real Supabase state:', err);
     }
-  }, []);
+  }, [session, user]);
+
+  // Master wallet and profile sync handler
+  const handleRefreshData = useCallback(async () => {
+    try {
+      await fetchRealDashboardData();
+      if (refreshUserData) {
+        await refreshUserData();
+      }
+    } catch (err) {
+      console.warn('Error syncing wallet data:', err);
+    }
+  }, [fetchRealDashboardData, refreshUserData]);
 
   // 1. FIX onAuthStateChange ROUTING TRAP:
   // Do NOT add an else { setCurrentView('landing'); } branch!
@@ -147,7 +205,7 @@ function MainApp() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [fetchRealDashboardData]);
+  }, []);
 
   // Sync currentView with user if logged in via context
   useEffect(() => {
@@ -397,9 +455,9 @@ function MainApp() {
             realProfileUsername={realUsername}
             realWallet={realWallet}
             realTransactions={realTransactions}
-            onRefreshData={() => {
-              if (session) fetchRealDashboardData(session);
-            }}
+            onRefreshData={handleRefreshData}
+            savedBank={savedBank}
+            onUpdateSavedBank={(bank) => setSavedBank(bank)}
           />
         ) : (
           <LandingPage

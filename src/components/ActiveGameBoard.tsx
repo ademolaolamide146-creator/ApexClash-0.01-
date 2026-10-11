@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { ActiveMatch, GameId } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { WhotGame } from '../WhotGame';
+import { TriviaGame } from '../TriviaGame';
 
 interface ActiveGameBoardProps {
   match: ActiveMatch;
@@ -40,28 +42,6 @@ export const ActiveGameBoard: React.FC<ActiveGameBoardProps> = ({
     '2. Nf3 Nc6',
     '3. Bc4 Nf6',
   ]);
-
-  // Whot specific state
-  const [whotCallCard, setWhotCallCard] = useState<{ shape: string; num: number }>({
-    shape: '★',
-    num: 14,
-  });
-  const [whotHand, setWhotHand] = useState([
-    { shape: '★', num: 7 },
-    { shape: '▲', num: 14 },
-    { shape: '■', num: 1 },
-    { shape: '●', num: 2 },
-    { shape: '★', num: 20 },
-  ]);
-  const [whotOpponentCount, setWhotOpponentCount] = useState(4);
-
-  // Trivia specific state
-  const [triviaIndex, setTriviaIndex] = useState(0);
-  const [triviaSelected, setTriviaSelected] = useState<number | null>(null);
-  const [myScore, setMyScore] = useState(480);
-  const [oppScore, setOppScore] = useState(420);
-  const [triviaTimer, setTriviaTimer] = useState(8);
-
   // Ludo specific state
   const [diceValue, setDiceValue] = useState(6);
   const [isRolling, setIsRolling] = useState(false);
@@ -75,15 +55,6 @@ export const ActiveGameBoard: React.FC<ActiveGameBoardProps> = ({
     }, 1000);
     return () => clearInterval(interval);
   }, [settledResult]);
-
-  // Trivia buzzer timer
-  useEffect(() => {
-    if (match.gameId !== 'trivia' || settledResult) return;
-    const t = setInterval(() => {
-      setTriviaTimer((prev) => (prev > 1 ? prev - 1 : 10));
-    }, 1000);
-    return () => clearInterval(t);
-  }, [match.gameId, settledResult]);
 
   const pot = match.stakeCoins * 2;
   const winnerPayout = Math.floor(pot * 0.9);
@@ -118,28 +89,15 @@ export const ActiveGameBoard: React.FC<ActiveGameBoardProps> = ({
     }, 400);
   };
 
-  const triviaQuestions = [
-    {
-      q: 'Which Nigerian music icon released the epochal Grammy-winning album "Twice As Tall" in 2020?',
-      options: ['Wizkid', 'Burna Boy', 'Davido', 'Tiwa Savage'],
-      correct: 1,
-    },
-    {
-      q: 'In the traditional game of Naija Whot, what mandatory action does card number 2 trigger?',
-      options: ['Hold On', 'Pick Two', 'Pick Three', 'General Market'],
-      correct: 1,
-    },
-    {
-      q: 'Which city served as Nigeria’s federal capital before it was officially relocated to Abuja in 1991?',
-      options: ['Ibadan', 'Calabar', 'Lagos', 'Enugu'],
-      correct: 2,
-    },
-    {
-      q: 'In standard FIDE Blitz Chess, what is the maximum initial clock time allocated to each player?',
-      options: ['3 to 5 Minutes', '10 Minutes', '15 Minutes', '30 Minutes'],
-      correct: 0,
-    },
-  ];
+
+
+  if (match.gameId === 'whot') {
+    return <WhotGame match={match} onExit={onExit} onSettle={onSettle} />;
+  }
+
+  if (match.gameId === 'trivia') {
+    return <TriviaGame matchId={match.id} match={match} onExit={onExit} onSettle={onSettle} />;
+  }
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-fade-in pb-16">
@@ -158,8 +116,6 @@ export const ActiveGameBoard: React.FC<ActiveGameBoardProps> = ({
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
             {match.gameId === 'chess' && 'Speed Chess 5-Min Blitz'}
-            {match.gameId === 'whot' && 'Naija Whot Head-to-Head'}
-            {match.gameId === 'trivia' && 'Speed Trivia 10-Question Buzzer'}
             {match.gameId === 'ludo' && 'Ludo Classic 4-Token Race'}
           </h2>
           <div className="flex items-center gap-3 text-xs font-mono text-neutral-300 mt-1">
@@ -325,133 +281,7 @@ export const ActiveGameBoard: React.FC<ActiveGameBoardProps> = ({
             </div>
           )}
 
-          {/* B. NAIJA WHOT TABLE */}
-          {match.gameId === 'whot' && (
-            <div className="space-y-6 text-center">
-              {/* Opponent's Cards */}
-              <div className="flex justify-center gap-1 mb-2">
-                {Array.from({ length: whotOpponentCount }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-10 h-14 rounded-lg bg-gradient-to-b from-[#DC2626] to-[#7F1D1D] border border-white/20 shadow-md flex items-center justify-center text-[9px] font-mono text-white/50 -ml-2 first:ml-0"
-                  >
-                    WHOT
-                  </div>
-                ))}
-              </div>
 
-              {/* Call Card Table */}
-              <div className="flex items-center justify-center gap-6 my-6">
-                {/* General Market (Deck) */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setWhotHand((prev) => [
-                      ...prev,
-                      { shape: '●', num: Math.floor(1 + Math.random() * 14) },
-                    ]);
-                  }}
-                  className="w-20 h-28 rounded-xl bg-neutral-800 border-2 border-white/20 flex flex-col items-center justify-center shadow-xl hover:border-[#F5A623] cursor-pointer"
-                >
-                  <span className="text-xs font-mono font-bold text-neutral-400">MARKET</span>
-                  <span className="text-[10px] text-neutral-500 mt-1">Tap to Pick</span>
-                </button>
-
-                {/* Call Card on Table */}
-                <div className="w-24 h-32 rounded-xl bg-amber-50 border-2 border-[#F5A623] shadow-2xl flex flex-col justify-between p-2 text-neutral-900 font-mono font-black animate-scale-in">
-                  <div className="text-xs flex justify-between">
-                    <span>{whotCallCard.num}</span>
-                    <span>{whotCallCard.shape}</span>
-                  </div>
-                  <div className="text-3xl text-center">{whotCallCard.shape}</div>
-                  <div className="text-xs flex justify-between rotate-180">
-                    <span>{whotCallCard.num}</span>
-                    <span>{whotCallCard.shape}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Player's Hand */}
-              <div className="space-y-2">
-                <span className="text-xs font-mono text-neutral-400">Your Hand (Tap matching card to play)</span>
-                <div className="flex flex-wrap justify-center gap-2 pt-2">
-                  {whotHand.map((card, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => {
-                        setWhotCallCard(card);
-                        setWhotHand((h) => h.filter((_, i) => i !== idx));
-                      }}
-                      className="w-14 h-20 rounded-xl bg-amber-50 hover:-translate-y-2 border border-black/20 shadow-lg flex flex-col justify-between p-1.5 text-neutral-900 font-mono font-bold transition-transform cursor-pointer"
-                    >
-                      <span className="text-[10px]">{card.num}</span>
-                      <span className="text-lg text-center">{card.shape}</span>
-                      <span className="text-[10px] text-right">{card.shape}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* C. SPEED TRIVIA ARENA */}
-          {match.gameId === 'trivia' && (
-            <div className="max-w-xl mx-auto space-y-6">
-              {/* Question Progress & Buzzer */}
-              <div className="flex items-center justify-between font-mono text-xs">
-                <span className="text-neutral-400">Question {triviaIndex + 1} of 4</span>
-                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5A623]/10 border border-[#F5A623]/30 text-[#F5A623] font-bold">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>Buzzer: {triviaTimer}s</span>
-                </div>
-                <span className="text-emerald-400 font-bold">Score: {myScore} pts</span>
-              </div>
-
-              {/* Question Box */}
-              <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/[0.08] text-center">
-                <h4 className="text-base sm:text-lg font-bold text-white leading-snug">
-                  {triviaQuestions[triviaIndex].q}
-                </h4>
-              </div>
-
-              {/* Options */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {triviaQuestions[triviaIndex].options.map((opt, i) => {
-                  const isSelected = triviaSelected === i;
-                  const isCorrect = triviaQuestions[triviaIndex].correct === i;
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => {
-                        setTriviaSelected(i);
-                        if (isCorrect) setMyScore((s) => s + 100);
-                        setTimeout(() => {
-                          setTriviaSelected(null);
-                          if (triviaIndex < triviaQuestions.length - 1) {
-                            setTriviaIndex((idx) => idx + 1);
-                          }
-                        }, 800);
-                      }}
-                      className={`p-3.5 rounded-xl text-left border font-mono text-xs transition-all cursor-pointer ${
-                        isSelected
-                          ? isCorrect
-                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                            : 'bg-red-500/20 border-red-500 text-red-300'
-                          : 'bg-white/[0.03] border-white/[0.08] hover:border-[#F5A623] text-white'
-                      }`}
-                    >
-                      <span className="font-bold text-neutral-400 mr-2">
-                        {String.fromCharCode(65 + i)}.
-                      </span>
-                      <span>{opt}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           {/* D. LUDO CLASSIC RACE */}
           {match.gameId === 'ludo' && (
