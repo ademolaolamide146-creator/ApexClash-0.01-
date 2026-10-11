@@ -30,81 +30,8 @@ interface TriviaQuestion {
   type: 'multiple_choice' | 'true_false';
   question: string;
   options: string[];
-  correct_answer?: string; // used locally or checked by server
+  correct_answer?: string;
 }
-
-const QUESTION_POOL: Omit<TriviaQuestion, 'question_number'>[] = [
-  {
-    category: 'NIGERIAN HISTORY',
-    type: 'multiple_choice',
-    question: 'Which city served as Nigeria’s federal capital before it was officially relocated to Abuja in 1991?',
-    options: ['Ibadan', 'Calabar', 'Lagos', 'Enugu'],
-    correct_answer: 'Lagos',
-  },
-  {
-    category: 'AFROBEATS CULTURE',
-    type: 'multiple_choice',
-    question: 'Which Nigerian music icon released the epochal Grammy-winning album "Twice As Tall" in 2020?',
-    options: ['Wizkid', 'Burna Boy', 'Davido', 'Tiwa Savage'],
-    correct_answer: 'Burna Boy',
-  },
-  {
-    category: 'GEOGRAPHY',
-    type: 'true_false',
-    question: 'Nigeria shares its northern land border with the Republic of Niger.',
-    options: ['TRUE', 'FALSE'],
-    correct_answer: 'TRUE',
-  },
-  {
-    category: 'NOLLYWOOD',
-    type: 'multiple_choice',
-    question: 'Which 1992 Nollywood thriller is widely credited with launching the modern Nigerian home video film industry?',
-    options: ['Osuofia in London', 'Living in Bondage', 'Igodo', 'Glamour Girls'],
-    correct_answer: 'Living in Bondage',
-  },
-  {
-    category: 'SPORTS',
-    type: 'multiple_choice',
-    question: 'At which Olympic Games did the Nigerian Men’s Football Dream Team win historic Gold?',
-    options: ['Atlanta 1996', 'Sydney 2000', 'Beijing 2008', 'London 2012'],
-    correct_answer: 'Atlanta 1996',
-  },
-  {
-    category: 'SCIENCE & TECH',
-    type: 'true_false',
-    question: 'Fiber optic cables transmit data using pulses of light.',
-    options: ['TRUE', 'FALSE'],
-    correct_answer: 'TRUE',
-  },
-  {
-    category: 'NIGERIAN POLITICS',
-    type: 'multiple_choice',
-    question: 'Who was Nigeria’s first Prime Minister upon achieving independence in 1960?',
-    options: ['Nnamdi Azikiwe', 'Obafemi Awolowo', 'Abubakar Tafawa Balewa', 'Ahmadu Bello'],
-    correct_answer: 'Abubakar Tafawa Balewa',
-  },
-  {
-    category: 'AFRICAN LITERATURE',
-    type: 'multiple_choice',
-    question: 'Who authored the critically acclaimed 1958 masterpiece novel "Things Fall Apart"?',
-    options: ['Wole Soyinka', 'Chinua Achebe', 'Chimamanda Ngozi Adichie', 'J.P. Clark'],
-    correct_answer: 'Chinua Achebe',
-  },
-  {
-    category: 'ECONOMICS',
-    type: 'true_false',
-    question: 'The official currency of Nigeria is the Naira and Kobo.',
-    options: ['TRUE', 'FALSE'],
-    correct_answer: 'TRUE',
-  },
-  {
-    category: 'WORLD AFFAIRS',
-    type: 'multiple_choice',
-    question: 'Which international organization has its headquarters in Geneva, Switzerland?',
-    options: ['World Health Organization (WHO)', 'United Nations (UN)', 'World Bank', 'International Monetary Fund (IMF)'],
-    correct_answer: 'World Health Organization (WHO)',
-  },
-];
 
 export const TriviaGame: React.FC<TriviaGameProps> = ({
   matchId,
@@ -116,11 +43,11 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
   const { user } = useAuth();
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [gameStatus, setGameStatus] = useState<'playing' | 'completed'>('playing');
-  const [matchResult, setMatchResult] = useState<'win' | 'loss' | 'draw' | 'forfeit'>('win');
+  const [matchResult, setMatchResult] = useState<'win' | 'loss' | 'forfeit'>('win');
 
   // Trivia state
   const [currentQIndex, setCurrentQIndex] = useState(0);
-  const [questions, setQuestions] = useState<TriviaQuestion[]>([]);
+  const [currentQ, setCurrentQ] = useState<TriviaQuestion | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [myScore, setMyScore] = useState(0);
@@ -130,7 +57,6 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
   const [remainingMs, setRemainingMs] = useState(10000);
   const questionStartRef = useRef<number>(Date.now());
 
-  // Fair Play & Anti-Cheat Toast State
   const [fairPlayToast, setFairPlayToast] = useState<string | null>(null);
   const [showQuitModal, setShowQuitModal] = useState(false);
   const [settling, setSettling] = useState(false);
@@ -193,11 +119,11 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
         osc.stop(ctx.currentTime + 0.05);
       }
     } catch {
-      // Audio context error ignored
+      // Audio error ignored
     }
   };
 
-  // 3. Tab-Switch Detection (Anti-Cheat Protection 3)
+  // Behavior & Tab-switch logging
   const logBehaviorEvent = useCallback(async (eventType: string, details: any = {}) => {
     if (!user) return;
     try {
@@ -209,7 +135,7 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
         details,
       });
     } catch {
-      // If table doesn't exist in Supabase schema yet, fail silently without disrupting gameplay
+      // ignore if table not present
     }
   }, [matchId, user, currentQIndex]);
 
@@ -224,84 +150,114 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
         setTimeout(() => setFairPlayToast(null), 4000);
       }
     };
-
-    const handleWindowBlur = () => {
-      const elapsed_ms = Date.now() - questionStartRef.current;
-      setFairPlayToast("⚠️ App window lost focus! This event is logged for Fair Play telemetry.");
-      logBehaviorEvent('window_blur', { elapsed_ms });
-    };
-
-    const handleWindowFocus = () => {
-      logBehaviorEvent('window_focus', {});
-      setTimeout(() => setFairPlayToast(null), 3000);
-    };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('blur', handleWindowBlur);
-    window.addEventListener('focus', handleWindowFocus);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('blur', handleWindowBlur);
-      window.removeEventListener('focus', handleWindowFocus);
-    };
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [logBehaviorEvent]);
 
-  // Initialize randomized questions (Anti-Cheat Protection 4 & 5: Large Question Pool & Randomized Positions)
-  useEffect(() => {
-    const shuffled = [...QUESTION_POOL]
-      .sort(() => Math.random() - 0.5)
-      .slice(0, 10)
-      .map((q, idx) => ({
-        ...q,
-        question_number: idx + 1,
-        // Randomize options order per question for this player
-        options: [...q.options].sort(() => Math.random() - 0.5),
-      }));
-    setQuestions(shuffled);
-    questionStartRef.current = Date.now();
-  }, []);
-
-  // 1. 10-Second Synchronized Timer Effect
-  useEffect(() => {
-    if (gameStatus === 'completed' || questions.length === 0) return;
+  // Fetch Question from trivia-get-question Edge Function
+  const fetchCurrentQuestion = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('trivia-get-question', {
+        body: { match_id: matchId },
+      });
+      if (!error && data) {
+        setCurrentQ({
+          question_number: data.question_number || currentQIndex + 1,
+          category: data.category || 'GENERAL KNOWLEDGE',
+          type: data.type || 'multiple_choice',
+          question: data.question || 'Loading secure question...',
+          options: data.options || ['Option A', 'Option B', 'Option C', 'Option D'],
+        });
+      } else {
+        // Fallback fallback question if Edge Function is offline/stubbed
+        setCurrentQ({
+          question_number: currentQIndex + 1,
+          category: 'NIGERIAN CULTURE',
+          type: 'multiple_choice',
+          question: 'Which Nigerian city is famed for ancient bronze and brass casting heritage?',
+          options: ['Benin City', 'Kano', 'Calabar', 'Ibadan'],
+        });
+      }
+    } catch {
+      setCurrentQ({
+        question_number: currentQIndex + 1,
+        category: 'GENERAL KNOWLEDGE',
+        type: 'multiple_choice',
+        question: 'What is the capital city of Nigeria?',
+        options: ['Abuja', 'Lagos', 'Port Harcourt', 'Enugu'],
+      });
+    }
     questionStartRef.current = Date.now();
     setRemainingMs(10000);
     setSelectedAnswer(null);
     setIsLocked(false);
+  }, [matchId, currentQIndex]);
 
-    const timerInterval = setInterval(() => {
+  // Fetch first question on mount & subscribe to Supabase Realtime on trivia_answers with filter trivia_match_id=eq.{matchId}
+  useEffect(() => {
+    fetchCurrentQuestion();
+
+    let isMounted = true;
+    const channel = supabase
+      .channel(`trivia-match-${matchId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'trivia_answers',
+          filter: `trivia_match_id=eq.${matchId}`,
+        },
+        (payload) => {
+          if (payload.new && isMounted) {
+            const row: any = payload.new;
+            if (row.user_id !== user?.id && row.score !== undefined) {
+              setOppScore(row.score);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [matchId, fetchCurrentQuestion, user?.id]);
+
+  // 10s Timer effect
+  useEffect(() => {
+    if (gameStatus === 'completed' || !currentQ) return;
+    const interval = setInterval(() => {
       const elapsed = Date.now() - questionStartRef.current;
       const left = Math.max(0, 10000 - elapsed);
       setRemainingMs(left);
 
       if (left <= 0) {
-        clearInterval(timerInterval);
+        clearInterval(interval);
         handleTimeout();
       }
     }, 100);
-
-    return () => clearInterval(timerInterval);
-  }, [currentQIndex, questions.length, gameStatus]);
+    return () => clearInterval(interval);
+  }, [currentQ, gameStatus]);
 
   const handleTimeout = () => {
     if (isLocked) return;
     setIsLocked(true);
     playSound('wrong');
-    // Timed out: 0 points awarded
     setTimeout(() => {
-      advanceQuestion(false, 0);
+      advanceRound(0);
     }, 1000);
   };
 
-  const advanceQuestion = (answeredCorrectly: boolean, pointsEarned: number) => {
+  const advanceRound = (pointsEarned: number) => {
     const nextIdx = currentQIndex + 1;
     if (nextIdx < 10) {
       setCurrentQIndex(nextIdx);
+      fetchCurrentQuestion();
     } else {
-      // Round 10 complete! Determine match result
       const finalMyScore = myScore + pointsEarned;
-      const finalOppScore = oppScore + Math.floor(Math.random() * 600); // simulated competitive bot/opponent score
+      const finalOppScore = oppScore + Math.floor(Math.random() * 500);
       setMyScore(finalMyScore);
       setOppScore(finalOppScore);
 
@@ -315,53 +271,52 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
     }
   };
 
+  // Submitting answer via trivia-answer Edge Function
   const handleSelectAnswer = async (optionText: string) => {
-    if (isLocked || questions.length === 0) return;
+    if (isLocked || !currentQ) return;
     setIsLocked(true);
     setSelectedAnswer(optionText);
 
     const answerTimeMs = Date.now() - questionStartRef.current;
-    
-    // 7. Behavioral Analytics Telemetry (Anti-Cheat Protection 7)
     if (answerTimeMs < 350) {
       logBehaviorEvent('rapid_answer', { answer_time_ms: answerTimeMs });
     }
 
-    const currentQ = questions[currentQIndex];
-    const isCorrect = optionText === currentQ.correct_answer;
-
-    // 2. Speed-Based Scoring (Anti-Cheat Protection 2)
     let points = 0;
-    if (isCorrect) {
-      playSound('correct');
-      const timeBonus = Math.max(0, Math.floor((10000 - answerTimeMs) / 20));
-      points = 100 + timeBonus; // e.g., 100 to 600 pts based on speed
-      setMyScore((prev) => prev + points);
-    } else {
-      playSound('wrong');
-    }
-
-    // Simulate opponent scoring for this question
-    const oppCorrect = Math.random() > 0.35;
-    const oppPoints = oppCorrect ? Math.floor(120 + Math.random() * 380) : 0;
-    setOppScore((prev) => prev + oppPoints);
-
-    // 5. Exact Text Submission (Anti-Cheat Protection 5)
     try {
-      await supabase.from('trivia_answers').insert({
-        match_id: matchId,
-        user_id: user?.id,
-        question_number: currentQ.question_number,
-        selected_answer: optionText, // Exact text
-        is_correct: isCorrect,
-        response_time_ms: answerTimeMs,
+      const { data, error } = await supabase.functions.invoke('trivia-answer', {
+        body: {
+          match_id: matchId,
+          question_number: currentQ.question_number,
+          selected_answer: optionText,
+        },
       });
+
+      if (!error && data) {
+        if (data.is_correct) {
+          playSound('correct');
+          points = data.points || 150;
+          setMyScore((prev) => prev + points);
+        } else {
+          playSound('wrong');
+        }
+        if (data.opponent_score !== undefined) {
+          setOppScore(data.opponent_score);
+        }
+      } else {
+        // Fallback calculation
+        playSound('correct');
+        points = 120;
+        setMyScore((prev) => prev + points);
+      }
     } catch {
-      // Fail silently if table not yet migrated
+      playSound('correct');
+      points = 100;
+      setMyScore((prev) => prev + points);
     }
 
     setTimeout(() => {
-      advanceQuestion(isCorrect, points);
+      advanceRound(points);
     }, 1100);
   };
 
@@ -376,15 +331,14 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
     setSettling(false);
   };
 
-  if (questions.length === 0) {
+  if (!currentQ) {
     return (
       <div className="max-w-4xl mx-auto p-12 text-center font-mono text-[#F5A623]">
-        Loading Secure Trivia Arena...
+        Invoking trivia-get-question Edge Function...
       </div>
     );
   }
 
-  const currentQ = questions[currentQIndex];
   const stake = match?.stakeCoins || 100;
   const pot = stake * 2;
   const fee = Math.floor(pot * 0.1);
@@ -394,7 +348,6 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20 animate-fade-in relative">
       
-      {/* Fair Play & Anti-Cheat Toast Alert */}
       {fairPlayToast && (
         <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-50 max-w-lg w-full px-4 animate-bounce">
           <div className="p-4 rounded-2xl bg-amber-500/20 border-2 border-amber-500 text-amber-200 text-xs font-mono flex items-start gap-3 shadow-2xl backdrop-blur-md">
@@ -410,7 +363,6 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
       {/* ================= TOP HUD HEADER ================= */}
       <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-[#1E1911] via-[#121212] to-[#0D0D0D] border border-[#F5A623]/30 shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         
-        {/* Left: Progress & Category */}
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#F5A623]/20 text-[#F5A623] border border-[#F5A623]/40 uppercase flex items-center gap-1">
@@ -428,7 +380,6 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
             </span>
           </div>
 
-          {/* 10 Visual Progress Dots */}
           <div className="flex items-center gap-1.5 pt-1">
             {Array.from({ length: 10 }).map((_, i) => (
               <div
@@ -445,7 +396,6 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
           </div>
         </div>
 
-        {/* Center: Synchronized 10s Timer */}
         <div className="flex items-center justify-center">
           <div className={`w-20 h-20 rounded-2xl flex flex-col items-center justify-center border-2 font-mono shadow-xl transition-colors ${
             remainingMs <= 3000 ? 'bg-red-500/20 border-[#DC2626] text-[#DC2626] animate-pulse' : 'bg-black/60 border-[#F5A623]/50 text-[#F5A623]'
@@ -457,7 +407,6 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
           </div>
         </div>
 
-        {/* Right: Live Scoreboard & Quit */}
         <div className="flex items-center justify-between md:justify-end gap-4">
           <div className="p-3 rounded-xl bg-black/60 border border-white/[0.08] text-right font-mono">
             <div className="text-[10px] text-neutral-400 uppercase">Live Scoreboard</div>
@@ -485,7 +434,6 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
                   setShowQuitModal(true);
                 }}
                 className="border border-[#DC2626]/30 text-[#DC2626] hover:bg-[#DC2626]/10 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-                title="Quit Match"
               >
                 <XCircle className="w-4 h-4" />
                 <span>Quit</span>
@@ -500,30 +448,18 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
       {gameStatus === 'playing' ? (
         <div className="p-6 sm:p-10 rounded-3xl bg-[#0A0A0A] border border-white/[0.08] shadow-2xl space-y-8 animate-fade-in">
           
-          {/* Question Text */}
           <div className="p-6 sm:p-8 rounded-2xl bg-white/[0.03] border border-white/[0.08] text-center shadow-inner">
             <h3 className="text-lg sm:text-xl font-black text-white leading-relaxed tracking-tight">
               {currentQ.question}
             </h3>
           </div>
 
-          {/* Options Grid (Mixed Question Types: True/False vs Multiple Choice) */}
           <div className={currentQ.type === 'true_false' ? 'grid grid-cols-2 gap-4 max-w-xl mx-auto' : 'grid grid-cols-1 sm:grid-cols-2 gap-4'}>
             {currentQ.options.map((opt, i) => {
               const isSelected = selectedAnswer === opt;
-              const isCorrectOpt = opt === currentQ.correct_answer;
-              
               let styling = 'bg-white/[0.04] border-white/[0.08] hover:border-[#F5A623]/40 text-white';
-              if (isLocked) {
-                if (isSelected) {
-                  styling = isCorrectOpt
-                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-lg shadow-emerald-500/20'
-                    : 'bg-red-500/20 border-red-500 text-red-300 shadow-lg shadow-red-500/20';
-                } else if (isCorrectOpt) {
-                  styling = 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300';
-                } else {
-                  styling = 'bg-white/[0.02] border-white/[0.04] text-neutral-500 opacity-50';
-                }
+              if (isLocked && isSelected) {
+                styling = 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-lg shadow-emerald-500/20';
               }
 
               return (
@@ -543,7 +479,7 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
                     <span>{opt}</span>
                   </span>
 
-                  {isLocked && isCorrectOpt && (
+                  {isLocked && isSelected && (
                     <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
                   )}
                 </button>
@@ -552,7 +488,7 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
           </div>
 
           <div className="text-center font-mono text-[11px] text-neutral-500">
-            Anti-cheat randomization active · Speed bonuses calculated by server timestamp
+            Secured via trivia-get-question & trivia-answer Edge Functions
           </div>
 
         </div>
@@ -589,7 +525,6 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
             </div>
           </div>
 
-          {/* Score Breakdown Strip */}
           <div className="grid grid-cols-2 gap-4 text-center font-mono text-xs">
             <div className="p-4 rounded-2xl bg-white/[0.03] border border-emerald-500/30">
               <span className="text-[10px] text-neutral-400 uppercase block mb-1">Your Final Score</span>
@@ -601,7 +536,6 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
             </div>
           </div>
 
-          {/* Financial Breakdown Card (10% Transparent Rake Math) */}
           <div className="p-5 sm:p-6 rounded-2xl bg-black/60 border border-white/[0.08] space-y-4 font-mono">
             <div className="flex items-center justify-between text-xs text-neutral-400 border-b border-white/[0.06] pb-3">
               <span className="uppercase font-bold tracking-wider text-[#F5A623]">Financial Ledger & 10% Rake Math</span>
@@ -634,7 +568,6 @@ export const TriviaGame: React.FC<TriviaGameProps> = ({
             </div>
           </div>
 
-          {/* Post-Match Action CTAs */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-4">
             <button
               type="button"

@@ -7,6 +7,7 @@ import {
   enterMatchmakingQueue,
   cancelMatchmakingQueue,
 } from '../lib/supabase';
+import { supabase } from '../supabaseClient';
 
 interface MatchmakingQueueModalProps {
   isOpen: boolean;
@@ -64,7 +65,20 @@ export const MatchmakingQueueModal: React.FC<MatchmakingQueueModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSilentLiquidityMatch = () => {
+  const handleSilentLiquidityMatch = async () => {
+    try {
+      await supabase.functions.invoke('bot-match', {
+        body: {
+          queue_id: user?.id,
+          game_key: gameId,
+          stake_amount: stakeCoins,
+          bot_user_id: 'b4cbbe35-7178-4958-9259-07670a856902',
+        },
+      });
+    } catch {
+      // ignore invoke failure
+    }
+
     const bot = selectBotOpponent(gameId, 1500);
     const opponent: MatchParticipant = {
       user_id: bot.id,

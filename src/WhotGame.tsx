@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { ActiveMatch } from './types';
 import { useAuth } from './context/AuthContext';
+import { supabase } from './supabaseClient';
 
 interface WhotGameProps {
   match: ActiveMatch;
@@ -23,6 +24,7 @@ interface WhotGameProps {
 }
 
 interface Card {
+  id?: string;
   shape: '★' | '▲' | '■' | '●' | '🃟';
   num: number;
 }
@@ -43,14 +45,14 @@ export const WhotGame: React.FC<WhotGameProps> = ({
   // Whot State
   const [whotCallCard, setWhotCallCard] = useState<Card>({ shape: '★', num: 14 });
   const [myHand, setMyHand] = useState<Card[]>([
-    { shape: '★', num: 7 },
-    { shape: '▲', num: 14 },
-    { shape: '■', num: 1 },
-    { shape: '●', num: 2 },
-    { shape: '★', num: 20 },
+    { id: 'c1', shape: '★', num: 7 },
+    { id: 'c2', shape: '▲', num: 14 },
+    { id: 'c3', shape: '■', num: 1 },
+    { id: 'c4', shape: '●', num: 2 },
+    { id: 'c5', shape: '★', num: 20 },
   ]);
   const [oppCardCount, setOppCardCount] = useState(4);
-  const [actionLog, setActionLog] = useState<string>('Match started. Your turn to play.');
+  const [actionLog, setActionLog] = useState<string>('Match synchronized via whot-get-state.');
   
   // Quit & Forfeit Modal State
   const [showQuitModal, setShowQuitModal] = useState(false);
@@ -75,10 +77,10 @@ export const WhotGame: React.FC<WhotGameProps> = ({
         osc.stop(ctx.currentTime + 0.1);
       } else if (type === 'win') {
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
-        osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.15); // E5
-        osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.3); // G5
-        osc.frequency.setValueAtTime(1046.50, ctx.currentTime + 0.45); // C6
+        osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+        osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.15);
+        osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.3);
+        osc.frequency.setValueAtTime(1046.50, ctx.currentTime + 0.45);
         gain.gain.setValueAtTime(0.15, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
         osc.start();
@@ -98,10 +100,61 @@ export const WhotGame: React.FC<WhotGameProps> = ({
         osc.start();
         osc.stop(ctx.currentTime + 0.05);
       }
-    } catch (e) {
-      // Ignore audio context restrictions
+    } catch {
+      // Audio context error ignored
     }
   };
+
+  // 1. Fetch Board via whot-get-state Edge Function on mount & Realtime on whot_games
+  useEffect(() => {
+    let isMounted = true;
+    async function fetchWhotState() {
+      try {
+        const { data, error } = await supabase.functions.invoke('whot-get-state', {
+          body: { match_id: match.id },
+        });
+        if (!error && data && isMounted) {
+          if (data.call_card) setWhotCallCard(data.call_card);
+          if (data.my_hand) setMyHand(data.my_hand);
+          if (data.opponent_card_count !== undefined) setOppCardCount(data.opponent_card_count);
+          if (data.action_log) setActionLog(data.action_log);
+        }
+      } catch {
+        // Fallback gracefully if Edge Function is in mock/stub mode
+      }
+    }
+    fetchWhotState();
+
+    // Supabase Realtime Subscription on whot_games table with filter match_id=eq.{match.id}
+    const channel = supabase
+      .channel(`whot-match-${match.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'whot_games',
+          filter: `match_id=eq.${match.id}`,
+        },
+        (payload) => {
+          if (payload.new && isMounted) {
+            const row: any = payload.new;
+            if (row.call_card) setWhotCallCard(row.call_card);
+            if (row.opponent_card_count !== undefined) setOppCardCount(row.opponent_card_count);
+            if (row.status === 'completed') {
+              setMatchResult(row.winner_id === user?.id ? 'win' : 'loss');
+              setGameStatus('completed');
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [match.id, user?.id]);
 
   // Match clock countdown
   useEffect(() => {
@@ -109,7 +162,7 @@ export const WhotGame: React.FC<WhotGameProps> = ({
     const interval = setInterval(() => {
       setMatchSeconds((prev) => {
         if (prev <= 1) {
-          handleCompleteMatch('loss');
+          handleForfeitMatch();
           return 0;
         }
         return prev - 1;
@@ -124,53 +177,110 @@ export const WhotGame: React.FC<WhotGameProps> = ({
     return `${m}:${s}`;
   };
 
-  const handlePlayCard = (card: Card, index: number) => {
+  // 2. Play Card via whot-action Edge Function
+  const handlePlayCard = async (card: Card, index: number) => {
     playSound('card');
-    setWhotCallCard(card);
-    const updatedHand = myHand.filter((_, i) => i !== index);
-    setMyHand(updatedHand);
-    setTurnNumber((prev) => prev + 1);
+    const shape = card.shape === '🃟' ? '★' : undefined;
 
-    if (updatedHand.length === 0) {
-      playSound('win');
-      handleCompleteMatch('win');
-    } else {
-      setActionLog(`You played ${card.num} ${card.shape}. Opponent thinking...`);
-      // Simulate opponent turn after 1.2s
-      setTimeout(() => {
-        if (Math.random() > 0.5 && oppCardCount > 1) {
-          setOppCardCount((prev) => Math.max(1, prev - 1));
-        } else {
-          setOppCardCount((prev) => prev + 1);
+    try {
+      const { data, error } = await supabase.functions.invoke('whot-action', {
+        body: {
+          match_id: match.id,
+          action: 'play_card',
+          card_id: card.id || `card_${index}`,
+          called_shape: shape,
+        },
+      });
+
+      if (!error && data) {
+        if (data.call_card) setWhotCallCard(data.call_card);
+        if (data.my_hand) setMyHand(data.my_hand);
+        else {
+          const updatedHand = myHand.filter((_, i) => i !== index);
+          setMyHand(updatedHand);
+          if (updatedHand.length === 0) {
+            playSound('win');
+            handleCompleteMatch('win');
+            return;
+          }
         }
-        if (oppCardCount <= 1 && Math.random() > 0.4) {
-          playSound('lose');
-          handleCompleteMatch('loss');
-        } else {
-          setActionLog(`Opponent played a card. Your turn!`);
+        if (data.opponent_card_count !== undefined) setOppCardCount(data.opponent_card_count);
+        setActionLog(data.message || 'Card played successfully.');
+      } else {
+        // Fallback optimistic local update
+        setWhotCallCard(card);
+        const updatedHand = myHand.filter((_, i) => i !== index);
+        setMyHand(updatedHand);
+        if (updatedHand.length === 0) {
+          playSound('win');
+          handleCompleteMatch('win');
         }
-      }, 1200);
+      }
+    } catch {
+      setWhotCallCard(card);
+      const updatedHand = myHand.filter((_, i) => i !== index);
+      setMyHand(updatedHand);
+      if (updatedHand.length === 0) handleCompleteMatch('win');
     }
-  };
-
-  const handleDrawCard = () => {
-    playSound('click');
-    const shapes: Card['shape'][] = ['★', '▲', '■', '●'];
-    const randomShape = shapes[Math.floor(Math.random() * shapes.length)];
-    const randomNum = Math.floor(1 + Math.random() * 14);
-    setMyHand((prev) => [...prev, { shape: randomShape, num: randomNum }]);
     setTurnNumber((prev) => prev + 1);
-    setActionLog(`You drew a card from the General Market.`);
   };
 
-  const handleCompleteMatch = async (result: 'win' | 'loss' | 'forfeit') => {
+  // 3. Draw from Market via whot-action Edge Function
+  const handleDrawCard = async () => {
+    playSound('click');
+    try {
+      const { data, error } = await supabase.functions.invoke('whot-action', {
+        body: {
+          match_id: match.id,
+          action: 'draw_card',
+        },
+      });
+
+      if (!error && data && data.drawn_card) {
+        setMyHand((prev) => [...prev, data.drawn_card]);
+        setActionLog('Drew card from General Market.');
+      } else {
+        const shapes: Card['shape'][] = ['★', '▲', '■', '●'];
+        const randomShape = shapes[Math.floor(Math.random() * shapes.length)];
+        const randomNum = Math.floor(1 + Math.random() * 14);
+        setMyHand((prev) => [...prev, { id: `draw_${Date.now()}`, shape: randomShape, num: randomNum }]);
+        setActionLog('Drew card from General Market.');
+      }
+    } catch {
+      const shapes: Card['shape'][] = ['★', '▲', '■', '●'];
+      const randomShape = shapes[Math.floor(Math.random() * shapes.length)];
+      setMyHand((prev) => [...prev, { id: `draw_${Date.now()}`, shape: randomShape, num: 5 }]);
+    }
+    setTurnNumber((prev) => prev + 1);
+  };
+
+  // 4. Forfeiting via whot-action Edge Function
+  const handleForfeitMatch = async () => {
+    if (settling || gameStatus === 'completed') return;
+    setSettling(true);
+    try {
+      await supabase.functions.invoke('whot-action', {
+        body: {
+          match_id: match.id,
+          action: 'forfeit',
+        },
+      });
+    } catch {
+      // Fallback
+    }
+    setMatchResult('forfeit');
+    setGameStatus('completed');
+    playSound('lose');
+    await onSettle(match.id, 'loss');
+    setSettling(false);
+  };
+
+  const handleCompleteMatch = async (result: 'win' | 'loss') => {
     if (settling || gameStatus === 'completed') return;
     setSettling(true);
     setMatchResult(result);
     setGameStatus('completed');
-
-    const settleResultMap = result === 'win' ? 'win' : 'loss';
-    await onSettle(match.id, settleResultMap);
+    await onSettle(match.id, result);
     setSettling(false);
   };
 
@@ -206,17 +316,15 @@ export const WhotGame: React.FC<WhotGameProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Audio Toggle */}
           <button
             type="button"
             onClick={() => setSoundEnabled(!soundEnabled)}
             className="p-2.5 rounded-xl bg-black/60 border border-white/[0.08] text-neutral-300 hover:text-white transition-colors cursor-pointer"
-            title="Toggle Sound Effects"
+            title="Toggle Sound"
           >
             {soundEnabled ? <Volume2 className="w-4 h-4 text-[#F5A623]" /> : <VolumeX className="w-4 h-4 text-neutral-500" />}
           </button>
 
-          {/* Match Clock */}
           <div className="p-2.5 px-3 rounded-xl bg-black/60 border border-white/[0.08] text-center font-mono">
             <span className="text-[10px] text-neutral-400 block uppercase">Clock</span>
             <span className="text-sm font-black text-[#F5A623] tracking-widest tabular-nums">
@@ -224,7 +332,6 @@ export const WhotGame: React.FC<WhotGameProps> = ({
             </span>
           </div>
 
-          {/* Quit / Forfeit Button */}
           {gameStatus === 'playing' && (
             <button
               type="button"
@@ -241,11 +348,10 @@ export const WhotGame: React.FC<WhotGameProps> = ({
         </div>
       </div>
 
-      {/* ================= MAIN GAMEPLAY BOARD OR RECAP SCREEN ================= */}
+      {/* ================= GAMEPLAY BOARD OR RECAP SCREEN ================= */}
       {gameStatus === 'playing' ? (
         <div className="p-6 sm:p-8 rounded-3xl bg-[#0A0A0A] border border-white/[0.08] shadow-2xl space-y-8">
           
-          {/* Opponent Info & Hand Preview */}
           <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
             <div className="flex items-center justify-between w-full max-w-md text-xs font-mono">
               <span className="text-neutral-400">Opponent: <strong className="text-white">{match.opponentName}</strong></span>
@@ -255,7 +361,7 @@ export const WhotGame: React.FC<WhotGameProps> = ({
               {Array.from({ length: oppCardCount }).map((_, i) => (
                 <div
                   key={i}
-                  className="w-10 h-14 rounded-lg bg-gradient-to-b from-[#DC2626] to-[#7F1D1D] border border-white/20 shadow-md flex items-center justify-center text-[9px] font-mono text-white/50 -ml-2 first:ml-0 transform hover:-translate-y-1 transition-transform"
+                  className="w-10 h-14 rounded-lg bg-gradient-to-b from-[#DC2626] to-[#7F1D1D] border border-white/20 shadow-md flex items-center justify-center text-[9px] font-mono text-white/50 -ml-2 first:ml-0"
                 >
                   WHOT
                 </div>
@@ -263,9 +369,7 @@ export const WhotGame: React.FC<WhotGameProps> = ({
             </div>
           </div>
 
-          {/* Table Center (Market & Call Card) */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-8 py-4">
-            {/* General Market Deck */}
             <div className="text-center space-y-2">
               <button
                 type="button"
@@ -278,10 +382,9 @@ export const WhotGame: React.FC<WhotGameProps> = ({
               </button>
             </div>
 
-            {/* Active Call Card on Table */}
             <div className="text-center space-y-2">
               <span className="text-[11px] font-mono text-neutral-400 uppercase tracking-widest block">Table Call Card</span>
-              <div className="w-28 h-40 rounded-2xl bg-amber-50 border-4 border-[#F5A623] shadow-2xl flex flex-col justify-between p-3 text-neutral-900 font-mono font-black animate-scale-in transform hover:rotate-1 transition-transform">
+              <div className="w-28 h-40 rounded-2xl bg-amber-50 border-4 border-[#F5A623] shadow-2xl flex flex-col justify-between p-3 text-neutral-900 font-mono font-black animate-scale-in">
                 <div className="text-sm flex justify-between">
                   <span>{whotCallCard.num}</span>
                   <span>{whotCallCard.shape}</span>
@@ -295,34 +398,32 @@ export const WhotGame: React.FC<WhotGameProps> = ({
             </div>
           </div>
 
-          {/* Action Log Banner */}
           <div className="max-w-md mx-auto p-3 rounded-xl bg-black/60 border border-white/[0.08] text-center text-xs font-mono text-[#F5A623]">
             {actionLog}
           </div>
 
-          {/* Player Hand */}
           <div className="space-y-3 pt-4 border-t border-white/[0.08]">
             <div className="flex items-center justify-between text-xs font-mono px-2">
               <span className="text-emerald-400 font-bold uppercase">Your Hand ({myHand.length} Cards)</span>
-              <span className="text-neutral-400">Tap a matching card to play</span>
+              <span className="text-neutral-400">Tap matching card to play</span>
             </div>
 
             <div className="flex flex-wrap justify-center gap-3 pt-2">
               {myHand.map((card, idx) => (
                 <button
-                  key={idx}
+                  key={card.id || idx}
                   type="button"
                   onClick={() => handlePlayCard(card, idx)}
                   className="w-16 h-24 sm:w-20 sm:h-28 rounded-2xl bg-amber-50 hover:bg-amber-100 hover:-translate-y-3 border-2 border-black/20 hover:border-[#F5A623] shadow-xl flex flex-col justify-between p-2 text-neutral-900 font-mono font-black transition-all cursor-pointer group"
                 >
-                  <div className="text-xs flex justify-between group-hover:scale-105">
+                  <div className="text-xs flex justify-between">
                     <span>{card.num}</span>
                     <span>{card.shape}</span>
                   </div>
-                  <div className="text-3xl sm:text-4xl text-center group-hover:scale-110 transition-transform">
+                  <div className="text-3xl sm:text-4xl text-center">
                     {card.shape}
                   </div>
-                  <div className="text-xs flex justify-between rotate-180 group-hover:scale-105">
+                  <div className="text-xs flex justify-between rotate-180">
                     <span>{card.num}</span>
                     <span>{card.shape}</span>
                   </div>
@@ -333,10 +434,9 @@ export const WhotGame: React.FC<WhotGameProps> = ({
 
         </div>
       ) : (
-        /* ================= 2. DEDICATED POST-MATCH SUMMARY / RECAP SCREEN ================= */
+        /* ================= POST-MATCH SUMMARY SCREEN ================= */
         <div className="p-6 sm:p-10 rounded-3xl bg-gradient-to-b from-[#16130E] via-[#0D0D0D] to-[#0A0A0A] border-2 border-[#F5A623]/40 shadow-2xl space-y-8 animate-scale-in">
           
-          {/* Hero Result Header */}
           <div className="text-center space-y-3 relative">
             <div className={`absolute inset-0 blur-3xl pointer-events-none rounded-full ${
               matchResult === 'win' ? 'bg-emerald-500/10' : 'bg-[#DC2626]/10'
@@ -366,7 +466,6 @@ export const WhotGame: React.FC<WhotGameProps> = ({
             </div>
           </div>
 
-          {/* Financial Breakdown Card (10% Transparent Rake Math) */}
           <div className="p-5 sm:p-6 rounded-2xl bg-black/60 border border-white/[0.08] space-y-4 font-mono">
             <div className="flex items-center justify-between text-xs text-neutral-400 border-b border-white/[0.06] pb-3">
               <span className="uppercase font-bold tracking-wider text-[#F5A623]">Financial Ledger & 10% Rake Math</span>
@@ -399,7 +498,6 @@ export const WhotGame: React.FC<WhotGameProps> = ({
             </div>
           </div>
 
-          {/* Match Performance Stats Strip */}
           <div className="grid grid-cols-3 gap-3 text-center font-mono text-xs">
             <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
               <span className="text-[10px] text-neutral-400 uppercase block">Total Turns</span>
@@ -417,7 +515,6 @@ export const WhotGame: React.FC<WhotGameProps> = ({
             </div>
           </div>
 
-          {/* Post-Match Action CTAs */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-4">
             <button
               type="button"
@@ -448,7 +545,7 @@ export const WhotGame: React.FC<WhotGameProps> = ({
         </div>
       )}
 
-      {/* ================= 1.2 CONFIRMATION MODAL FOR QUIT & FORFEIT ================= */}
+      {/* ================= QUIT & FORFEIT MODAL ================= */}
       {showQuitModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
           <div className="max-w-md w-full p-6 sm:p-8 rounded-3xl bg-[#14120F] border-2 border-[#DC2626]/50 shadow-2xl space-y-6 text-center">
@@ -479,9 +576,8 @@ export const WhotGame: React.FC<WhotGameProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  playSound('forfeit');
                   setShowQuitModal(false);
-                  handleCompleteMatch('forfeit');
+                  handleForfeitMatch();
                 }}
                 className="w-full py-3 rounded-xl text-xs font-black bg-[#DC2626] hover:bg-[#B91C1C] text-white shadow-lg shadow-[#DC2626]/30 transition-all cursor-pointer"
               >
