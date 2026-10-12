@@ -175,7 +175,63 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   if (!user) return null;
 
-  const handleOpenQueue = (gameId: GameId, stake: number) => {
+  const [joining, setJoining] = useState(false);
+  const [activeQueueId, setActiveQueueId] = useState<string | null>(null);
+
+  const handleOpenQueue = async (gameId: GameId, stake: number) => {
+    // 1. Refresh balance
+    const { data: w } = await supabase.from('wallets').select('balance').eq('user_id', user.id).single();
+    if (w) {
+        // Assume you have a way to update wallet/UI balance or simply use 'w.balance'
+    }
+
+    // 2. Robust handleFindMatch
+    if (!stake || !gameId) return;
+    if ((w?.balance || 0) < stake) {
+        alert("Insufficient funds");
+        return;
+    }
+    setJoining(true);
+
+    // Fetch game row
+    const { data: gameRow, error: gameErr } = await supabase
+        .from('games')
+        .select('id')
+        .eq('key', gameId)
+        .single();
+
+    if (gameErr || !gameRow) {
+        console.error("Game lookup error:", gameErr);
+        alert("Could not load game details. Check console.");
+        setJoining(false);
+        return;
+    }
+
+    // Insert into queue
+    const { data: queueRow, error: queueErr } = await supabase
+        .from('matchmaking_queue')
+        .insert({
+            user_id: user.id,
+            game_id: gameRow.id,
+            stake_amount: stake,
+            status: 'waiting'
+        })
+        .select()
+        .single();
+
+    if (queueErr) {
+        console.error("Matchmaking queue insert error:", queueErr);
+        alert(`Failed to join queue: ${queueErr.message}`);
+        setJoining(false);
+        return;
+    }
+
+    // ON SUCCESS
+    setActiveQueueId(queueRow.id);
+    setArenaSubView('matched'); // Transition to queue screen (assuming 'matched' or similar is the screen)
+    // Locally update balance (simplified)
+    setJoining(false);
+    
     setQueueModal({
       isOpen: true,
       gameId,
