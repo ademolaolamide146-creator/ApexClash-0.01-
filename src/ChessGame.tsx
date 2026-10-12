@@ -18,9 +18,10 @@ import {
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { ActiveMatch } from './types';
+import { Chess } from 'chess.js';
 
 // Simple sound synthesizer
-const playSound = (type: 'move' | 'capture' | 'win' | 'loss' | 'click' | 'check') => {
+const playSound = (type: 'move' | 'capture' | 'win' | 'loss' | 'click' | 'check' | 'invalid') => {
   try {
     const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const osc = audioCtx.createOscillator();
@@ -29,7 +30,13 @@ const playSound = (type: 'move' | 'capture' | 'win' | 'loss' | 'click' | 'check'
     gain.connect(audioCtx.destination);
 
     const now = audioCtx.currentTime;
-    if (type === 'move') {
+    if (type === 'invalid') {
+      osc.frequency.setValueAtTime(150, now);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    } else if (type === 'move') {
       osc.frequency.setValueAtTime(440, now);
       gain.gain.setValueAtTime(0.15, now);
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
@@ -44,10 +51,10 @@ const playSound = (type: 'move' | 'capture' | 'win' | 'loss' | 'click' | 'check'
       osc.stop(now + 0.15);
     } else if (type === 'win') {
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(523.25, now); // C5
-      osc.frequency.setValueAtTime(659.25, now + 0.1); // E5
-      osc.frequency.setValueAtTime(783.99, now + 0.2); // G5
-      osc.frequency.setValueAtTime(1046.50, now + 0.3); // C6
+      osc.frequency.setValueAtTime(523.25, now);
+      osc.frequency.setValueAtTime(659.25, now + 0.1);
+      osc.frequency.setValueAtTime(783.99, now + 0.2);
+      osc.frequency.setValueAtTime(1046.50, now + 0.3);
       gain.gain.setValueAtTime(0.2, now);
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
       osc.start(now);
@@ -149,6 +156,8 @@ export const ChessGame: React.FC<ChessGameProps> = ({ matchId, match, onExit, on
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
+  const [validMoves, setValidMoves] = useState<string[]>([]);
+  const [toast, setToast] = useState<{msg: string} | null>(null);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
   // Modals
@@ -345,6 +354,29 @@ export const ChessGame: React.FC<ChessGameProps> = ({ matchId, match, onExit, on
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Calculate valid moves when selection changes
+  useEffect(() => {
+    if (!gameState || !selectedSquare) {
+      setValidMoves([]);
+      return;
+    }
+    const chess = new Chess(gameState.fen);
+    try {
+      const moves = chess.moves({ square: selectedSquare as any, verbose: true });
+      setValidMoves(moves.map(m => m.to));
+    } catch {
+      setValidMoves([]);
+    }
+  }, [gameState?.fen, selectedSquare]);
+
+  // Toast auto-dismiss
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
   const handleSquareClick = async (r: number, c: number) => {
     if (!gameState || gameState.status !== 'in_progress' || !gameState.is_my_turn) return;
 
@@ -370,6 +402,28 @@ export const ChessGame: React.FC<ChessGameProps> = ({ matchId, match, onExit, on
       }
     } else {
       if (selectedSquare === squareNotation) {
+        setSelectedSquare(null);
+        return;
+      }
+
+      // Check if valid move
+      if (!validMoves.includes(squareNotation)) {
+        // Check if user clicked another friendly piece instead
+        const board = parseFen(gameState.fen);
+        const piece = board[actualR][actualC];
+        if (piece) {
+            const isWhitePiece = piece === piece.toUpperCase();
+            const myIsWhite = gameState.my_color === 'white';
+            if (isWhitePiece === myIsWhite) {
+                setSelectedSquare(squareNotation);
+                if (soundEnabled) playSound('click');
+                return;
+            }
+        }
+        
+        // Invalid move
+        setToast({ msg: "Invalid Move: That piece cannot move there." });
+        if (soundEnabled) playSound('invalid');
         setSelectedSquare(null);
         return;
       }
@@ -664,6 +718,7 @@ export const ChessGame: React.FC<ChessGameProps> = ({ matchId, match, onExit, on
                   const ranks = isWhitePlayer ? ['8', '7', '6', '5', '4', '3', '2', '1'] : ['1', '2', '3', '4', '5', '6', '7', '8'];
                   const squareNotation = `${files[actualC]}${ranks[actualR]}`;
                   const isSelected = selectedSquare === squareNotation;
+                  const isValidMove = validMoves.includes(squareNotation);
                   const isDark = (actualR + actualC) % 2 === 1;
 
                   return (
@@ -674,6 +729,11 @@ export const ChessGame: React.FC<ChessGameProps> = ({ matchId, match, onExit, on
                         isDark ? 'bg-[#1A1A1A]' : 'bg-[#2A2415]'
                       } ${isSelected ? 'ring-2 ring-inset ring-[#F5A623] bg-[#F5A623]/20' : 'hover:bg-white/[0.08]'}`}
                     >
+                      {/* Valid Move Indicator */}
+                      {isValidMove && (
+                        <div className={`absolute w-3 h-3 rounded-full ${parseFen(gameState.fen)[actualR][actualC] ? 'border-2 border-[#F5A623]' : 'bg-[#F5A623]/80'}`}></div>
+                      )}
+                      
                       {actualC === 0 && (
                         <span className="absolute top-0.5 left-1 text-[9px] font-mono text-white/30 select-none">
                           {ranks[actualR]}
@@ -695,6 +755,14 @@ export const ChessGame: React.FC<ChessGameProps> = ({ matchId, match, onExit, on
                 })
               )}
             </div>
+            
+            {/* Invalid Move Toast */}
+            {toast && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-[#141414]/95 border border-[#DC2626] rounded-xl px-4 py-2.5 shadow-2xl flex items-center gap-2.5 z-40 animate-fade-in">
+                <ShieldAlert className="w-4 h-4 text-[#DC2626]" />
+                <span className="font-bold text-xs text-white">{toast.msg}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

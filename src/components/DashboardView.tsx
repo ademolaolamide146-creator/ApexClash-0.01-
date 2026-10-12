@@ -333,6 +333,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* 2. MAIN TAB CONTENT */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex-1">
+        {mountedActiveMatch && currentTab !== 'arena' && (
+          <div className="bg-gradient-to-r from-[#141414] to-[#1C1708] border border-[#F5A623]/40 rounded-2xl p-4 shadow-xl flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 bg-[#F5A623] rounded-full animate-pulse" />
+              <div className="font-mono text-xs">
+                <p className="text-white font-bold">⚔️ Active {mountedActiveMatch.gameId.toUpperCase()} Match in Progress</p>
+                <p className="text-[#F5A623]">{mountedActiveMatch.stakeCoins} Coins • ₦{(mountedActiveMatch.stakeCoins * 10).toLocaleString()}</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => setCurrentTab('arena')}
+              className="bg-[#F5A623] text-black font-bold text-xs px-4 py-2 rounded-xl hover:brightness-110 transition-all"
+            >
+              Resume Match →
+            </button>
+          </div>
+        )}
         
         {/* ACTIVE GAME BOARD (Immediate Mount upon in-progress match found) */}
         {mountedActiveMatch && currentTab === 'arena' ? (
@@ -366,10 +383,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                   <div>
                     <h1 className="text-2xl sm:text-3xl font-black text-white font-mono tracking-tight">
-                      Welcome back, {effectiveUsername}
+                      Welcome back, {effectiveUsername} 👋
                     </h1>
                     <p className="text-xs text-neutral-400 font-mono mt-1">
-                      Ready for high-stakes peer-to-peer competition in Nigeria.
+                      Ready to compete? Check your wallet, review rankings, or jump into the arena.
                     </p>
                   </div>
 
