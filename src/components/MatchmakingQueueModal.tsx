@@ -162,26 +162,23 @@ export const MatchmakingQueueModal: React.FC<MatchmakingQueueModalProps> = ({
           <div className="w-32 h-32 rounded-full border-4 border-[#F5A623] border-t-transparent animate-spin" />
 
           {/* Central Counter Display */}
+          {/* Central Counter Display */}
           <div className="absolute flex flex-col items-center justify-center">
             <span className="text-2xl mb-0.5">{gameInfo.icon}</span>
-            <span className="font-mono font-black text-lg text-white tabular-nums tracking-wider">
+            <span className="font-mono font-black text-xl text-white tabular-nums tracking-wider">
               {formatTimer(elapsedSeconds)}
             </span>
-            <span className="text-[9px] font-mono text-neutral-400 uppercase tracking-widest">
-              / 02:00
+            <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest mt-0.5">
+              Elapsed
             </span>
           </div>
         </div>
 
-        {/* Search status & Silent Liquidity Notice */}
+        {/* Search status */}
         <div className="space-y-2 mb-6">
           <p className="text-xs text-neutral-300">
-            Scanning active players across Lagos, Abuja, Port Harcourt & Ibadan
+            Scanning active players...
           </p>
-          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[11px] font-mono text-neutral-400 flex items-center justify-between">
-            <span>2-Min Liquidity Guarantee:</span>
-            <span className="text-emerald-400 font-bold">Active</span>
-          </div>
         </div>
 
         {/* Action Buttons */}
@@ -194,17 +191,6 @@ export const MatchmakingQueueModal: React.FC<MatchmakingQueueModalProps> = ({
             <Ban className="w-4 h-4 text-neutral-400" />
             <span>Cancel Search & Return to Arena</span>
           </button>
-
-          {/* Instant Match Sim for Reviewer Testing */}
-          <div className="pt-2">
-            <button
-              type="button"
-              onClick={handleManualPairTest}
-              className="text-xs text-neutral-500 hover:text-[#F5A623] font-mono transition-colors cursor-pointer"
-            >
-              [Simulate Instant Contender Found]
-            </button>
-          </div>
         </div>
 
       </div>

@@ -155,6 +155,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     rehydrateGameState();
   }, [user]);
 
+  const [joining, setJoining] = useState(false);
+  const [activeQueueId, setActiveQueueId] = useState<string | null>(null);
+
   const [privateRoomModal, setPrivateRoomModal] = useState<{
     isOpen: boolean;
     mode: 'create' | 'join';
@@ -174,9 +177,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   } | null>(null);
 
   if (!user) return null;
-
-  const [joining, setJoining] = useState(false);
-  const [activeQueueId, setActiveQueueId] = useState<string | null>(null);
 
   const handleOpenQueue = async (gameId: GameId, stake: number) => {
     // 1. Refresh balance
@@ -228,8 +228,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
     // ON SUCCESS
     setActiveQueueId(queueRow.id);
-    setArenaSubView('matched'); // Transition to queue screen (assuming 'matched' or similar is the screen)
-    // Locally update balance (simplified)
+    setArenaSubView('hub');
     setJoining(false);
     
     setQueueModal({
@@ -273,8 +272,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const { gameId, stake, playerTwo } = versusModal;
     setVersusModal(null);
     
-    // Logic to lock and launch...
-    setActiveMatchId('MATCH-' + Date.now()); // Temporary
+    const targetMatchId = 'MATCH-' + gameId.toUpperCase() + '-' + Date.now();
+    const newMatch: ActiveMatch = {
+      id: targetMatchId,
+      gameId,
+      stakeCoins: stake,
+      potCoins: stake * 2,
+      opponentName: playerTwo.username || 'Opponent',
+      status: 'in_progress',
+      startedAt: new Date().toISOString(),
+      remainingSeconds: 180,
+    };
+    setActiveMatch(newMatch);
+    setActiveMatchId(targetMatchId);
     setArenaSubView('in-game');
     setCurrentTab('arena');
   };
@@ -341,13 +351,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           <span className="text-base sm:text-lg font-bold text-white font-mono">
                             Coins
                           </span>
+                          <span className="text-sm sm:text-base font-bold font-mono text-emerald-400 ml-1">
+                            ≈ ₦{(availableCoins * 10).toLocaleString()}
+                          </span>
                         </div>
                       </div>
+
+                      {/* Escrow Locked Coins Strip */}
+                      <div className="pt-3 border-t border-white/[0.08] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                          <span className="text-neutral-400">Locked in Matches:</span>
+                          <span className="text-red-400 font-bold tabular-nums">
+                            {lockedCoins.toLocaleString()} Coins
+                          </span>
+                          <span className="text-neutral-500 text-[11px]">
+                            (₦{(lockedCoins * 10).toLocaleString()})
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-red-500/10 text-red-400 border border-red-500/20 font-semibold">
+                          Escrow Protected
+                        </span>
+                      </div>
                     </div>
+
                     {/* Quick Action Buttons */}
                     <div className="grid grid-cols-2 gap-3 mt-4">
-                      <button type="button" onClick={() => setCurrentTab('arena')} className="py-3 px-4 rounded-xl font-bold text-xs bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-black font-mono">Enter Arena</button>
-                      <button type="button" onClick={() => setCurrentTab('wallet')} className="py-3 px-4 rounded-xl font-bold text-xs bg-white/[0.06] text-white font-mono">Wallet</button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setArenaSubView('hub');
+                          setCurrentTab('arena');
+                        }}
+                        className="py-3 px-4 rounded-xl font-bold text-xs bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-black hover:brightness-105 transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#F5A623]/20 cursor-pointer font-mono"
+                      >
+                        <Swords className="w-4 h-4 fill-current" />
+                        <span>Enter Arena</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentTab('wallet')}
+                        className="py-3 px-4 rounded-xl font-bold text-xs bg-white/[0.06] hover:bg-white/[0.1] text-white border border-white/[0.1] transition-all flex items-center justify-center gap-2 cursor-pointer font-mono"
+                      >
+                        <Coins className="w-4 h-4 text-[#F5A623]" />
+                        <span>Wallet & Ledger</span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -387,7 +435,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
             )}
-            {currentTab === 'arena' && arenaSubView === 'hub' && (
+            {currentTab === 'arena' && arenaSubView !== 'in-game' && (
               <ArenaHub
                 onOpenRules={(gameId: GameId) => setRulesGameId(gameId)}
                 onOpenQueue={(gameId: GameId, stake: number) => handleOpenQueue(gameId, stake)}
@@ -397,7 +445,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 onOpenJoinRoom={() => setPrivateRoomModal({ isOpen: true, mode: 'join' })}
                 onOpenDeposit={() => setIsDepositModalOpen(true)}
                 walletBalance={availableCoins}
-                onNavigateTab={(tab) => setCurrentTab(tab)}
+                onNavigateTab={(tab) => {
+                  setArenaSubView('hub');
+                  setCurrentTab(tab);
+                }}
               />
             )}
             {currentTab === 'rankings' && <RankingsView />}
@@ -427,10 +478,83 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       
       <BottomNavBar
         currentTab={currentTab}
-        onSelectTab={setCurrentTab}
+        onSelectTab={(tab) => {
+          if (!activeMatchId) {
+            setArenaSubView('hub');
+          }
+          setCurrentTab(tab);
+        }}
         lockedCoinsCount={wallet?.locked_coins ?? 0}
       />
-      {/* ... Add other modals ... */}
+      {/* 4. MODALS */}
+      <DepositModal
+        isOpen={isDepositModalOpen}
+        onClose={() => setIsDepositModalOpen(false)}
+        currentBalance={availableCoins}
+        onSuccess={() => {
+          if (onRefreshData) onRefreshData();
+        }}
+      />
+
+      <WithdrawModal
+        isOpen={isWithdrawModalOpen}
+        onClose={() => setIsWithdrawModalOpen(false)}
+        savedBank={savedBank ?? null}
+        availableCoins={availableCoins}
+        onBankUpdated={(bank) => {
+          if (onUpdateSavedBank) onUpdateSavedBank(bank);
+        }}
+        onSuccess={() => {
+          if (onRefreshData) onRefreshData();
+        }}
+      />
+
+      {/* Game Rules "How It Works" Modal */}
+      {rulesGameId && (
+        <GameRulesModal
+          isOpen={Boolean(rulesGameId)}
+          gameId={rulesGameId}
+          onClose={() => setRulesGameId(null)}
+          onPlayNow={() => {
+            setRulesGameId(null);
+            setCurrentTab('arena');
+          }}
+        />
+      )}
+
+      {/* Real-time Matchmaking Queue Modal with 2-Minute Silent Fallback */}
+      <MatchmakingQueueModal
+        isOpen={queueModal.isOpen}
+        gameId={queueModal.gameId}
+        stakeCoins={queueModal.stake}
+        initialElapsedSeconds={queueModal.initialElapsedSeconds || 0}
+        onClose={() => {
+          setQueueModal((prev) => ({ ...prev, isOpen: false, initialElapsedSeconds: 0 }));
+          setArenaSubView('hub');
+        }}
+        onMatchFound={handleMatchFoundFromQueue}
+      />
+
+      {/* Private WhatsApp Challenge Room Modal (Create & Join) */}
+      <PrivateRoomLobbyModal
+        isOpen={privateRoomModal.isOpen}
+        initialMode={privateRoomModal.mode}
+        initialRoomCode={privateRoomModal.roomCode}
+        onClose={() => setPrivateRoomModal((prev) => ({ ...prev, isOpen: false }))}
+        onMatchMatched={handlePrivateRoomMatched}
+      />
+
+      {/* Match Confirmed 10-Second Countdown VS Screen */}
+      {versusModal && (
+        <MatchVersusModal
+          isOpen={versusModal.isOpen}
+          gameId={versusModal.gameId}
+          stakeCoins={versusModal.stake}
+          playerOne={versusModal.playerOne}
+          playerTwo={versusModal.playerTwo}
+          onCountdownComplete={handleVersusCountdownComplete}
+        />
+      )}
     </div>
   );
 };
