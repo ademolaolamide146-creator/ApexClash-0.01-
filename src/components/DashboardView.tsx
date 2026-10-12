@@ -250,8 +250,86 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         {currentTab !== 'arena' || arenaSubView !== 'in-game' ? (
           <>
             {currentTab === 'home' && (
-                /* ... Home screen content ... */
-                <div className="text-white">Home Screen</div>
+              <div className="space-y-8 animate-fade-in pb-16">
+                {/* 1. Greeting & Player ID Card */}
+                <div className="p-6 md:p-8 rounded-2xl bg-gradient-to-br from-[#1A1813] via-[#121212] to-[#0A0A0A] border border-[#F5A623]/30 relative overflow-hidden flex flex-col justify-between shadow-2xl">
+                  <div className="absolute top-0 right-0 w-80 h-80 bg-[#F5A623]/8 rounded-full blur-3xl pointer-events-none" />
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                      <div>
+                        <h1 className="text-2xl sm:text-3xl font-black text-white font-mono tracking-tight">
+                          Welcome back, {effectiveUsername} 👋
+                        </h1>
+                        <p className="text-xs text-neutral-400 font-mono mt-1">
+                          Ready to compete? Check your wallet, review rankings, or jump into the arena.
+                        </p>
+                      </div>
+                      <div className="px-3 py-1.5 rounded-xl bg-[#F5A623]/10 border border-[#F5A623]/30 text-[#F5A623] font-mono text-xs font-bold flex items-center gap-1.5">
+                        <Crown className="w-4 h-4" />
+                        <span>Bronze I • 1200 Elo</span>
+                      </div>
+                    </div>
+                    {/* 2. Balance Overview */}
+                    <div className="mt-6 p-6 rounded-2xl bg-black/50 border border-white/[0.1] backdrop-blur-sm space-y-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="text-xs text-neutral-400 font-mono uppercase tracking-wider font-semibold">
+                            Available Balance (Spendable)
+                          </span>
+                          <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        </div>
+                        <div className="flex flex-wrap items-baseline gap-2.5">
+                          <span className="text-4xl sm:text-5xl font-black font-mono text-[#F5A623] tabular-nums tracking-tight">
+                            {availableCoins.toLocaleString()}
+                          </span>
+                          <span className="text-base sm:text-lg font-bold text-white font-mono">
+                            Coins
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Quick Action Buttons */}
+                    <div className="grid grid-cols-2 gap-3 mt-4">
+                      <button type="button" onClick={() => setCurrentTab('arena')} className="py-3 px-4 rounded-xl font-bold text-xs bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-black font-mono">Enter Arena</button>
+                      <button type="button" onClick={() => setCurrentTab('wallet')} className="py-3 px-4 rounded-xl font-bold text-xs bg-white/[0.06] text-white font-mono">Wallet</button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Stats */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/[0.08] flex flex-col justify-between font-mono">
+                    <span className="text-xs text-neutral-400 uppercase">Matches Played</span>
+                    <span className="text-2xl font-black text-white mt-2">{user.won_matches ? user.won_matches * 2 : 0}</span>
+                  </div>
+                  <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/[0.08] flex flex-col justify-between font-mono">
+                    <span className="text-xs text-neutral-400 uppercase">Win Rate</span>
+                    <span className="text-2xl font-black text-[#F5A623] mt-2">{user.win_rate ?? 0}%</span>
+                  </div>
+                  <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/[0.08] flex flex-col justify-between font-mono">
+                    <span className="text-xs text-neutral-400 uppercase">Best Game</span>
+                    <span className="text-xl font-black mt-2 truncate text-white/40">N/A</span>
+                  </div>
+                </div>
+
+                {/* 4. Activity */}
+                <div className="space-y-4 pt-4 border-t border-white/[0.08]">
+                  <h3 className="text-lg font-bold text-white">Recent Activity</h3>
+                  {activityList.length > 0 ? (
+                    activityList.slice(0, 5).map((tx: any) => (
+                      <div key={tx.id} className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06] flex items-center justify-between gap-3 text-xs font-mono">
+                        <span className="text-white">{tx.description || tx.reference_id}</span>
+                        <span className={tx.amount_coins >= 0 ? 'text-emerald-400' : 'text-red-400'}>{tx.amount_coins} AC</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-8 rounded-2xl bg-white/[0.02] border border-white/[0.06] text-center space-y-3">
+                      <p className="text-xs text-neutral-400">No recent activity yet. Deposit and play to start seeing your history!</p>
+                      <button type="button" onClick={() => setCurrentTab('arena')} className="py-2.5 px-5 rounded-xl text-xs font-bold bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-black font-mono">Head to Arena</button>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
             {currentTab === 'arena' && arenaSubView === 'hub' && (
               <ArenaHub
