@@ -66,101 +66,63 @@ function MainApp() {
             currentSess = fetchedSession;
             setSession(fetchedSession);
           }
-        } catch {
-          // ignore
-        }
+        } catch {}
       }
 
       const userId = currentSess?.user?.id || user?.id;
       if (!userId) return;
 
-      const userEmail = currentSess?.user?.email || user?.email;
-      const fallbackName = user?.username || (userEmail ? userEmail.split('@')[0] : 'Contender');
+      const cacheKey = `dashboard_cache_${userId}`;
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const { uname, bankData, realWallet, realTransactions } = JSON.parse(cached);
+        setRealUsername(uname);
+        setSavedBank(bankData);
+        setRealWallet(realWallet);
+        setRealTransactions(realTransactions);
+      }
 
-      // 1. Fetch Profile and Bank details safely (handle missing record without crashing)
-      let uname = fallbackName;
+      const [profileRes, walletRes, txRes] = await Promise.all([
+        supabase.from('profiles').select('username, email, bank_name, bank_code, account_number, account_name, wallet_balance_coins, locked_balance_coins').eq('id', userId).maybeSingle(),
+        supabase.from('wallets').select('balance, locked_balance').eq('user_id', userId).maybeSingle(),
+        supabase.from('transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false })
+      ]);
+
+      let uname = user?.username || (currentSess?.user?.email?.split('@')[0] || 'Contender');
       let bankData: SavedBank | null = null;
       let profileCoins = 0;
       let profileLocked = 0;
 
-      try {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('username, email, bank_name, bank_code, account_number, account_name, wallet_balance_coins, locked_balance_coins')
-          .eq('id', userId)
-          .maybeSingle();
-        if (profile) {
-          if (profile.username) uname = profile.username;
-          if (profile.wallet_balance_coins !== undefined && profile.wallet_balance_coins !== null) {
-            profileCoins = profile.wallet_balance_coins;
-          }
-          if (profile.locked_balance_coins !== undefined && profile.locked_balance_coins !== null) {
-            profileLocked = profile.locked_balance_coins;
-          }
-          if (profile.bank_name && profile.account_number) {
-            bankData = {
-              bank_name: profile.bank_name,
-              bank_code: profile.bank_code || '',
-              account_number: profile.account_number,
-              account_name: profile.account_name || '',
-            };
-          }
+      if (profileRes.data) {
+        const profile = profileRes.data;
+        if (profile.username) uname = profile.username;
+        profileCoins = profile.wallet_balance_coins ?? 0;
+        profileLocked = profile.locked_balance_coins ?? 0;
+        if (profile.bank_name && profile.account_number) {
+          bankData = { bank_name: profile.bank_name, bank_code: profile.bank_code || '', account_number: profile.account_number, account_name: profile.account_name || '' };
         }
-      } catch {
-        // use fallback
       }
-      setRealUsername(uname);
-      setSavedBank(bankData);
 
-      // 2. Fetch Real Wallet safely (handle missing record without crashing)
       let bal = user?.wallet_balance_coins ?? profileCoins;
       let lockedBal = user?.locked_balance_coins ?? profileLocked;
-      try {
-        const { data: wallet } = await supabase
-          .from('wallets')
-          .select('balance, locked_balance')
-          .eq('user_id', userId)
-          .maybeSingle();
-        if (wallet) {
-          bal = wallet.balance ?? profileCoins;
-          lockedBal = wallet.locked_balance ?? profileLocked;
-        } else {
-          // If no wallet row yet in Supabase, create/upsert it
-          try {
-            await supabase.from('wallets').upsert({
-              user_id: userId,
-              balance: bal,
-              locked_balance: lockedBal,
-            });
-          } catch {
-            // ignore
-          }
-        }
-      } catch {
-        // use fallback
+
+      if (walletRes.data) {
+        bal = walletRes.data.balance ?? profileCoins;
+        lockedBal = walletRes.data.locked_balance ?? profileLocked;
+      } else {
+        try { await supabase.from('wallets').upsert({ user_id: userId, balance: bal, locked_balance: lockedBal }); } catch {}
       }
 
-      setRealWallet({
-        balance: bal,
-        locked_balance: lockedBal,
-      });
+      const realWalletData = { balance: bal, locked_balance: lockedBal };
+      const realTransactions = txRes.data || [];
 
-      // 3. Fetch Real Transactions / Match Activity safely
-      let txs: any[] = [];
-      try {
-        const { data: txData } = await supabase
-          .from('transactions')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false });
-        if (txData) {
-          txs = txData;
-        }
-      } catch {
-        // ignore
-      }
+      setRealUsername(uname);
+      setSavedBank(bankData);
+      setRealWallet(realWalletData);
+      setRealTransactions(realTransactions);
 
-      setRealTransactions(txs);
+      localStorage.setItem(cacheKey, JSON.stringify({ uname, bankData, realWallet: realWalletData, realTransactions }));
+
     } catch (err) {
       console.warn('Error fetching real Supabase state:', err);
     }
