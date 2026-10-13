@@ -12,9 +12,13 @@ import {
   AlertCircle,
   Plus,
   RefreshCw,
+  ChevronRight,
+  RotateCcw,
+  Trophy,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { SavedBank, Transaction } from '../types';
+import { SavedBank, Transaction, getSafeCoins, getSafeNaira } from '../types';
+import { TransactionDetailModal } from './TransactionDetailModal';
 
 interface WalletViewProps {
   onOpenDeposit: () => void;
@@ -34,6 +38,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
   onRefreshData,
 }) => {
   const { wallet, refreshUserData } = useAuth();
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [syncStatus, setSyncStatus] = useState<{
@@ -109,14 +114,6 @@ export const WalletView: React.FC<WalletViewProps> = ({
             <RefreshCw className={`w-3.5 h-3.5 text-[#F5A623] ${isSyncing ? 'animate-spin' : ''}`} />
             <span>{isSyncing ? 'Syncing Vault...' : 'Sync Wallet'}</span>
           </button>
-          <div className="flex items-center gap-1.5 text-[10px] text-neutral-500 font-mono">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span>
-              {lastSyncedAt
-                ? `Synced ${lastSyncedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
-                : 'Live Supabase Escrow'}
-            </span>
-          </div>
         </div>
       </div>
 
@@ -274,57 +271,83 @@ export const WalletView: React.FC<WalletViewProps> = ({
 
         {realTransactions.length > 0 ? (
           <div className="divide-y divide-white/[0.04]">
-            {realTransactions.map((tx) => (
-              <div
-                key={tx.id}
-                className="py-3.5 flex items-center justify-between gap-4 font-mono text-xs hover:bg-white/[0.01] transition-colors"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                      tx.type === 'deposit' || tx.type === 'win_payout'
-                        ? 'bg-emerald-500/15 text-emerald-400'
-                        : tx.type === 'withdrawal'
-                        ? 'bg-[#F5A623]/15 text-[#F5A623]'
-                        : 'bg-white/[0.05] text-neutral-400'
-                    }`}
-                  >
-                    {tx.type === 'deposit' || tx.type === 'win_payout' ? (
-                      <ArrowDownLeft className="w-4 h-4" />
-                    ) : tx.type === 'withdrawal' ? (
-                      <ArrowUpRight className="w-4 h-4" />
-                    ) : (
-                      <Lock className="w-4 h-4" />
-                    )}
+            {realTransactions.map((tx: any) => {
+              const coins = getSafeCoins(tx.amount_coins !== undefined ? tx.amount_coins : (tx?.coins !== undefined ? tx.coins : (tx?.amount ?? 0)));
+              const isRefund = tx?.type === 'match_refund' || tx?.type === 'refund';
+              const isPositive = coins >= 0 || isRefund;
+              const isDeposit = tx?.type === 'deposit';
+              const isWin = tx?.type === 'win_payout';
+              const isWithdraw = tx?.type === 'withdrawal';
+              const isLocked = tx?.type === 'stake_locked';
+
+              return (
+                <div
+                  key={tx.id || tx.reference_id || Math.random().toString()}
+                  onClick={() => setSelectedTransaction(tx)}
+                  className="py-3.5 px-2 -mx-2 rounded-xl flex items-center justify-between gap-4 font-mono text-xs hover:bg-white/[0.04] active:bg-white/[0.06] transition-colors cursor-pointer group"
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-transform group-hover:scale-105 ${
+                        isWin || isDeposit
+                          ? 'bg-emerald-500/15 text-emerald-400'
+                          : isRefund
+                          ? 'bg-[#F5A623]/15 text-[#F5A623] border border-[#F5A623]/30'
+                          : isWithdraw
+                          ? 'bg-[#F5A623]/15 text-[#F5A623]'
+                          : 'bg-white/[0.05] text-neutral-400'
+                      }`}
+                    >
+                      {isWin ? (
+                        <Trophy className="w-4 h-4 text-amber-400" />
+                      ) : isDeposit ? (
+                        <ArrowDownLeft className="w-4 h-4 text-emerald-400" />
+                      ) : isRefund ? (
+                        <RotateCcw className="w-4 h-4 text-[#F5A623]" />
+                      ) : isWithdraw ? (
+                        <ArrowUpRight className="w-4 h-4 text-[#F5A623]" />
+                      ) : (
+                        <Lock className="w-4 h-4 text-amber-300" />
+                      )}
+                    </div>
+
+                    <div className="min-w-0">
+                      <span className="text-white font-bold block truncate group-hover:text-[#F5A623] transition-colors">
+                        {isRefund
+                          ? 'Match Stake Refund'
+                          : (tx.description || (tx.type ? String(tx.type).replace(/_/g, ' ').toUpperCase() : '') || tx.reference_id || 'Transaction Activity')}
+                      </span>
+                      <span className="text-[10px] text-neutral-500 block">
+                        {new Date(tx.created_at || Date.now()).toLocaleString('en-NG', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="min-w-0">
-                    <span className="text-white font-bold block truncate">
-                      {tx.description || tx.type.replace('_', ' ').toUpperCase()}
-                    </span>
-                    <span className="text-[10px] text-neutral-500 block">
-                      {new Date(tx.created_at).toLocaleString('en-NG', {
-                        dateStyle: 'medium',
-                        timeStyle: 'short',
-                      })}
-                    </span>
+                  <div className="flex items-center gap-2.5 flex-shrink-0 text-right">
+                    <div>
+                      <span
+                        className={`font-black tabular-nums block ${
+                          isPositive ? 'text-emerald-400' : 'text-neutral-200'
+                        }`}
+                      >
+                        {isPositive ? `+${Math.abs(coins)}` : coins} Coins
+                      </span>
+                      <span className="text-[10px] text-neutral-500 block">
+                        ₦{getSafeNaira(coins)} NGN
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-neutral-600 group-hover:text-[#F5A623] group-hover:translate-x-0.5 transition-all" />
                   </div>
                 </div>
-
-                <div className="text-right flex-shrink-0">
-                  <span
-                    className={`font-black tabular-nums block ${
-                      tx.amount_coins >= 0 ? 'text-emerald-400' : 'text-neutral-200'
-                    }`}
-                  >
-                    {tx.amount_coins >= 0 ? `+${tx.amount_coins}` : tx.amount_coins} AC
-                  </span>
-                  <span className="text-[10px] text-neutral-500 block">
-                    ₦{Math.abs(tx.amount_naira || tx.amount_coins * 10).toLocaleString()} NGN
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="p-8 text-center text-xs text-neutral-400 font-mono">
@@ -332,6 +355,13 @@ export const WalletView: React.FC<WalletViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Transaction Details Modal */}
+      <TransactionDetailModal
+        isOpen={Boolean(selectedTransaction)}
+        transaction={selectedTransaction}
+        onClose={() => setSelectedTransaction(null)}
+      />
     </div>
   );
 };

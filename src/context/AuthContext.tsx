@@ -20,6 +20,7 @@ import {
   saveLocalActiveMatches,
   StoredUser,
   acknowledgeFinishedMatch,
+  markRoomCancelledLocally,
 } from '../lib/supabase';
 
 interface AuthContextType {
@@ -163,16 +164,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
         }
 
-        // Query transactions
+        // Query transactions and merge with local escrow history (such as refunds)
         const { data: txs } = await supabase
           .from('transactions')
           .select('*')
           .eq('user_id', userId)
           .order('created_at', { ascending: false });
 
-        if (txs) {
-          setTransactions(txs as Transaction[]);
-        }
+        const localTxs = getLocalTransactions(userId);
+        const map = new Map<string, Transaction>();
+        localTxs.forEach((t) => {
+          if (t?.id) map.set(t.id, t);
+          else if (t?.reference_id) map.set(t.reference_id, t);
+        });
+        (txs || []).forEach((t: any) => {
+          if (t?.id) map.set(t.id, { ...map.get(t.id), ...t });
+          else if (t?.reference_id) map.set(t.reference_id, { ...map.get(t.reference_id), ...t });
+        });
+        const mergedTxs = Array.from(map.values()).sort(
+          (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+        );
+        setTransactions(mergedTxs);
       } catch (err) {
         console.warn('Error loading Supabase user data:', err);
       }
@@ -961,59 +973,89 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       match_id: matchId,
     };
 
+    // 1. Attempt Supabase persistence (non-blocking if permission restricted)
     if (isSupabaseConfigured && supabase) {
       try {
         await supabase
           .from('wallets')
           .update({ balance: newAvailable, locked_balance: newLocked })
           .eq('user_id', user.id);
+      } catch (err) {
+        console.warn('refund update wallets:', err);
+      }
+      try {
+        await supabase
+          .from('profiles')
+          .update({ wallet_balance_coins: newAvailable, locked_balance_coins: newLocked })
+          .eq('id', user.id);
+      } catch (err) {
+        console.warn('refund update profiles:', err);
+      }
+      try {
         await supabase.from('transactions').insert([refundTx]);
-        if (matchId) {
+      } catch (err) {
+        console.warn('refund insert tx:', err);
+      }
+      if (matchId) {
+        try {
           await supabase
             .from('matches')
             .update({ status: 'cancelled' })
             .eq('id', matchId);
+        } catch (err) {
+          console.warn('refund update matches:', err);
         }
-      } catch (err) {
-        console.warn('refundStakeForCancelledMatch Supabase error:', err);
       }
-    } else {
-      const users = getLocalUsers();
-      const updated = users.map((u) =>
-        u.id === user.id
-          ? {
-              ...u,
-              wallet_balance_coins: newAvailable,
-              locked_balance_coins: newLocked,
-            }
-          : u
-      );
-      saveLocalUsers(updated);
-      saveLocalTransaction(refundTx);
+    }
 
-      const sess = getLocalSession();
-      if (sess && sess.user.id === user.id) {
-        setLocalSession({
-          user: {
-            ...sess.user,
+    // 2. ALWAYS update local cache & storage so refund is guaranteed instant and permanent
+    const users = getLocalUsers();
+    const updated = users.map((u) =>
+      u.id === user.id
+        ? {
+            ...u,
             wallet_balance_coins: newAvailable,
             locked_balance_coins: newLocked,
-          },
-        });
-      }
+          }
+        : u
+    );
+    saveLocalUsers(updated);
+    saveLocalTransaction(refundTx);
 
-      if (matchId) {
-        const raw = localStorage.getItem('apex_clash_private_rooms');
-        if (raw) {
+    const sess = getLocalSession();
+    if (sess && sess.user.id === user.id) {
+      setLocalSession({
+        user: {
+          ...sess.user,
+          wallet_balance_coins: newAvailable,
+          locked_balance_coins: newLocked,
+        },
+      });
+    }
+
+    // Mark cancelled in active matches and rooms
+    const currentMatches = getLocalActiveMatches();
+    const updatedMatches = currentMatches.filter((m) => m.id !== matchId);
+    saveLocalActiveMatches(updatedMatches);
+    setActiveMatches((prev) => prev.filter((m) => m.id !== matchId));
+
+    if (matchId) {
+      markRoomCancelledLocally(matchId);
+      const raw = localStorage.getItem('apex_clash_private_rooms');
+      if (raw) {
+        try {
           const rooms = JSON.parse(raw);
           const updatedRooms = rooms.map((r: any) =>
             r.id === matchId ? { ...r, status: 'cancelled' } : r
           );
           localStorage.setItem('apex_clash_private_rooms', JSON.stringify(updatedRooms));
+        } catch {
+          // ignore
         }
       }
     }
 
+    // 3. Update React User and Transactions State immediately
     setUser((prev) =>
       prev
         ? {

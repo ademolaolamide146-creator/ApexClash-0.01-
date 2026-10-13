@@ -40,6 +40,7 @@ interface MicroStakePickerProps {
   gameId: GameId;
   walletBalance: number;
   selectedStake: number | null;
+  isJoining?: boolean;
   onSelectStake: (stake: number) => void;
   onBack: () => void;
   onFindMatch: (gameId: GameId, stake: number) => void;
@@ -50,6 +51,7 @@ export const MicroStakePicker: React.FC<MicroStakePickerProps> = ({
   gameId,
   walletBalance,
   selectedStake,
+  isJoining = false,
   onSelectStake,
   onBack,
   onFindMatch,
@@ -61,6 +63,22 @@ export const MicroStakePicker: React.FC<MicroStakePickerProps> = ({
     selectedStake !== null && selectedStake > 0 && walletBalance >= selectedStake;
 
   const currentTier = STAKE_TIERS_CONFIG.find((t) => t.coins === selectedStake);
+
+  const [isLocallyQueueing, setIsLocallyQueueing] = React.useState<boolean>(false);
+
+  React.useEffect(() => {
+    if (!isJoining) {
+      setIsLocallyQueueing(false);
+    }
+  }, [isJoining]);
+
+  const handleQueueClick = () => {
+    if (isJoining || isLocallyQueueing) return;
+    if (isStakeValid && selectedStake) {
+      setIsLocallyQueueing(true);
+      onFindMatch(gameId, selectedStake);
+    }
+  };
 
   return (
     <div className="space-y-6 animate-fade-in max-w-3xl mx-auto pb-16">
@@ -247,28 +265,33 @@ export const MicroStakePicker: React.FC<MicroStakePickerProps> = ({
       <div className="pt-2">
         <button
           type="button"
-          disabled={!isStakeValid}
-          onClick={() => {
-            if (isStakeValid && selectedStake) {
-              onFindMatch(gameId, selectedStake);
-            }
-          }}
+          disabled={!isStakeValid || isJoining || isLocallyQueueing}
+          onClick={handleQueueClick}
           className={`w-full py-4 px-6 rounded-xl font-mono font-black text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 shadow-xl ${
-            isStakeValid
+            isStakeValid && !isJoining && !isLocallyQueueing
               ? 'bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-black hover:brightness-110 active:scale-[0.99] cursor-pointer shadow-[#F5A623]/25'
               : 'bg-white/[0.05] text-neutral-500 border border-white/[0.08] cursor-not-allowed opacity-50'
           }`}
         >
-          <Swords className="w-4 h-4 fill-current" />
-          <span>
-            {hasZeroBalance
-              ? 'Insufficient Balance — Fund Wallet First'
-              : !selectedStake
-              ? 'Select Stake Tier Above'
-              : walletBalance < selectedStake
-              ? `Insufficient Balance for ${selectedStake} Coins`
-              : `Find Match (${selectedStake} Coins • ₦${selectedStake * 10})`}
-          </span>
+          {isJoining || isLocallyQueueing ? (
+            <span className="flex items-center gap-2 text-black">
+              <span className="inline-block w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+              <span>Joining Matchmaking Queue...</span>
+            </span>
+          ) : (
+            <>
+              <Swords className="w-4 h-4 fill-current" />
+              <span>
+                {hasZeroBalance
+                  ? 'Insufficient Balance — Fund Wallet First'
+                  : !selectedStake
+                  ? 'Select Stake Tier Above'
+                  : walletBalance < selectedStake
+                  ? `Insufficient Balance for ${selectedStake} Coins`
+                  : `Find Match (${selectedStake} Coins • ₦${selectedStake * 10})`}
+              </span>
+            </>
+          )}
         </button>
       </div>
     </div>

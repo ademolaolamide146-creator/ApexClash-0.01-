@@ -354,9 +354,37 @@ export async function createPrivateRoomRpc(
   return { matchId };
 }
 
+const CANCELLED_ROOMS_STORAGE_KEY = 'apex_clash_cancelled_rooms';
+
+export function getCancelledRoomIdentifiers(): Set<string> {
+  try {
+    const raw = localStorage.getItem(CANCELLED_ROOMS_STORAGE_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function markRoomCancelledLocally(matchId?: string, roomCode?: string): void {
+  try {
+    const raw = localStorage.getItem(CANCELLED_ROOMS_STORAGE_KEY);
+    const list: string[] = raw ? JSON.parse(raw) : [];
+    if (matchId && matchId.trim() && !list.includes(matchId.trim())) {
+      list.push(matchId.trim());
+    }
+    if (roomCode && roomCode.trim() && !list.includes(roomCode.trim().toUpperCase())) {
+      list.push(roomCode.trim().toUpperCase());
+    }
+    localStorage.setItem(CANCELLED_ROOMS_STORAGE_KEY, JSON.stringify(list));
+  } catch {
+    // ignore
+  }
+}
+
 // 2b. Query all private challenge rooms created by or involving a user
 export async function fetchUserWhatsAppChallenges(userId: string): Promise<MatchData[]> {
   const EXPIRATION_MS = 15 * 60 * 1000; // 15 minutes window
+  const cancelledIds = getCancelledRoomIdentifiers();
   let combined: MatchData[] = [];
 
   // Local storage rooms first
@@ -388,7 +416,12 @@ export async function fetchUserWhatsAppChallenges(userId: string): Promise<Match
             row.match_participants?.some((p: any) => p.user_id === userId);
 
           if (isUserInMatch) {
-            const existingIdx = combined.findIndex((m) => m.id === row.id || m.room_code === row.room_code);
+            const existingIdx = combined.findIndex((m) => m.id === row.id || (row.room_code && m.room_code?.toUpperCase() === row.room_code.toUpperCase()));
+            const isMarkedCancelled = 
+              cancelledIds.has(row.id) || 
+              (row.room_code && cancelledIds.has(row.room_code.toUpperCase())) ||
+              (existingIdx >= 0 && combined[existingIdx].status === 'cancelled');
+
             const formatted: MatchData = {
               id: row.id,
               game_id: (row.game_id || row.game_key || 'whot') as GameId,
@@ -398,7 +431,7 @@ export async function fetchUserWhatsAppChallenges(userId: string): Promise<Match
               pot_amount: (row.stake_amount || 100) * 2,
               fee_amount: Math.floor((row.stake_amount || 100) * 2 * 0.1),
               payout_amount: Math.floor((row.stake_amount || 100) * 2 * 0.9),
-              status: row.status,
+              status: isMarkedCancelled ? ('cancelled' as MatchStatus) : (row.status as MatchStatus),
               participants: row.match_participants || [
                 {
                   user_id: row.creator_id || userId,
@@ -412,6 +445,10 @@ export async function fetchUserWhatsAppChallenges(userId: string): Promise<Match
             };
 
             if (existingIdx >= 0) {
+              // Never overwrite an already-cancelled room with 'waiting'
+              if (combined[existingIdx].status === 'cancelled') {
+                formatted.status = 'cancelled' as MatchStatus;
+              }
               combined[existingIdx] = formatted;
             } else {
               combined.push(formatted);
@@ -424,9 +461,15 @@ export async function fetchUserWhatsAppChallenges(userId: string): Promise<Match
     }
   }
 
-  // Check for expired waiting challenges (older than 15 minutes)
+  // Check for expired waiting challenges (older than 15 minutes) or cancelled
   const now = Date.now();
   combined = combined.map((room) => {
+    if (
+      cancelledIds.has(room.id) ||
+      (room.room_code && cancelledIds.has(room.room_code.toUpperCase()))
+    ) {
+      return { ...room, status: 'cancelled' as MatchStatus };
+    }
     if (room.status === 'waiting') {
       const ageMs = now - new Date(room.created_at).getTime();
       if (ageMs > EXPIRATION_MS) {
@@ -442,31 +485,51 @@ export async function fetchUserWhatsAppChallenges(userId: string): Promise<Match
 }
 
 // 2c. Cancel a private room
-export async function cancelPrivateRoomRpc(matchId: string, roomCode?: string): Promise<{ success: boolean }> {
-  if (isSupabaseConfigured && supabase) {
-    try {
-      await supabase
-        .from('matches')
-        .update({ status: 'cancelled' })
-        .eq('id', matchId);
-    } catch (err) {
-      console.warn('cancelPrivateRoomRpc supabase error:', err);
-    }
-  }
+export async function cancelPrivateRoomRpc(matchId?: string, roomCode?: string): Promise<{ success: boolean }> {
+  const cleanId = matchId?.trim();
+  const cleanCode = roomCode?.trim().toUpperCase();
 
+  // 1. Immediately register in permanent local cancelled registry
+  markRoomCancelledLocally(cleanId, cleanCode);
+
+  // 2. Update local rooms store
   try {
     const raw = localStorage.getItem(PRIVATE_ROOMS_STORAGE_KEY);
     if (raw) {
       const rooms: MatchData[] = JSON.parse(raw);
-      const updated = rooms.map((r) => 
-        (r.id === matchId || (roomCode && r.room_code === roomCode))
-          ? { ...r, status: 'cancelled' as MatchStatus }
-          : r
-      );
+      const updated = rooms.map((r) => {
+        const matchesId = cleanId && r.id === cleanId;
+        const matchesCode = cleanCode && r.room_code?.toUpperCase() === cleanCode;
+        if (matchesId || matchesCode) {
+          return { ...r, status: 'cancelled' as MatchStatus };
+        }
+        return r;
+      });
       localStorage.setItem(PRIVATE_ROOMS_STORAGE_KEY, JSON.stringify(updated));
     }
   } catch {
     // ignore
+  }
+
+  // 3. Attempt Supabase cancellation if configured
+  if (isSupabaseConfigured && supabase) {
+    try {
+      if (cleanId) {
+        await supabase.rpc('cancel_private_room', { p_match_id: cleanId });
+        await supabase
+          .from('matches')
+          .update({ status: 'cancelled' })
+          .eq('id', cleanId);
+      }
+      if (cleanCode) {
+        await supabase
+          .from('matches')
+          .update({ status: 'cancelled' })
+          .eq('room_code', cleanCode);
+      }
+    } catch (err) {
+      console.warn('cancelPrivateRoomRpc supabase error:', err);
+    }
   }
 
   return { success: true };

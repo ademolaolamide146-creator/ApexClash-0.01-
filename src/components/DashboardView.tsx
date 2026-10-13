@@ -22,9 +22,11 @@ import {
   Award,
   Crown,
   Flame,
+  RotateCcw,
+  Lock,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { GameId, StakeTier, DashboardTab, ActiveMatch, MatchParticipant, SavedBank } from '../types';
+import { GameId, StakeTier, DashboardTab, ActiveMatch, MatchParticipant, SavedBank, Transaction, getSafeCoins, getSafeNaira } from '../types';
 import { BottomNavBar } from './BottomNavBar';
 import { WalletView } from './WalletView';
 import { DepositModal } from './DepositModal';
@@ -37,6 +39,7 @@ import { MatchVersusModal } from './MatchVersusModal';
 import { ActiveGameBoard } from './ActiveGameBoard';
 import { RankingsView } from './RankingsView';
 import { ProfileView } from './ProfileView';
+import { TransactionDetailModal } from './TransactionDetailModal';
 import {
   queryActiveMatchForUser,
   queryMatchmakingQueueForUser,
@@ -64,6 +67,8 @@ interface DashboardViewProps {
   onRefreshData?: () => void;
   savedBank?: SavedBank | null;
   onUpdateSavedBank?: (bank: SavedBank) => void;
+  onCancelChallenge?: (matchId: string) => Promise<void>;
+  activePrivateRoom?: string | null;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -79,8 +84,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onRefreshData,
   savedBank,
   onUpdateSavedBank,
+  onCancelChallenge,
+  activePrivateRoom,
 }) => {
-  const { user, wallet, activeMatches, signOut, settleMatch, lockStakeForMatch } = useAuth();
+  const { user, wallet, transactions, activeMatches, signOut, settleMatch, lockStakeForMatch } = useAuth();
   
   // 1. PURGE ALL HARDCODED MOCK/DEMO MATCH STATES:
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
@@ -88,11 +95,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [currentTab, setCurrentTab] = useState<DashboardTab>(initialTab);
   const [arenaSubView, setArenaSubView] = useState<'hub' | 'in-game' | 'matched'>('hub');
   const [selectedGame, setSelectedGame] = useState<GameId | null>(null);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
   const effectiveUsername = realProfileUsername || user?.username || 'Contender';
-  const availableCoins = realWallet !== undefined ? realWallet.balance : (wallet?.available_coins ?? 0);
-  const lockedCoins = realWallet !== undefined ? realWallet.locked_balance : (wallet?.locked_coins ?? 0);
-  const activityList = realTransactions !== undefined ? realTransactions : [];
+  const availableCoins =
+    wallet?.available_coins !== undefined
+      ? wallet.available_coins
+      : (realWallet !== undefined ? realWallet.balance : 0);
+  const lockedCoins =
+    wallet?.locked_coins !== undefined
+      ? wallet.locked_coins
+      : (realWallet !== undefined ? realWallet.locked_balance : 0);
+  const activityList = React.useMemo(() => {
+    const map = new Map<string, any>();
+    (transactions || []).forEach((tx) => {
+      if (tx?.id) map.set(tx.id, tx);
+      else if (tx?.reference_id) map.set(tx.reference_id, tx);
+    });
+    (realTransactions || []).forEach((tx) => {
+      if (tx?.id) map.set(tx.id, { ...map.get(tx.id), ...tx });
+      else if (tx?.reference_id) map.set(tx.reference_id, { ...map.get(tx.reference_id), ...tx });
+    });
+    const combined = Array.from(map.values());
+    if (combined.length === 0) {
+      return (realTransactions && realTransactions.length > 0) ? realTransactions : (transactions || []);
+    }
+    return combined.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  }, [realTransactions, transactions]);
 
   // Sync tab if initialTab updates
   useEffect(() => {
@@ -179,63 +208,66 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   if (!user) return null;
 
   const handleOpenQueue = async (gameId: GameId, stake: number) => {
-    // 1. Refresh balance
-    const { data: w } = await supabase.from('wallets').select('balance').eq('user_id', user.id).single();
-    if (w) {
-        // Assume you have a way to update wallet/UI balance or simply use 'w.balance'
-    }
-
-    // 2. Robust handleFindMatch
-    if (!stake || !gameId) return;
-    if ((w?.balance || 0) < stake) {
-        alert("Insufficient funds");
-        return;
-    }
+    if (joining || !stake || !gameId) return;
     setJoining(true);
 
-    // Fetch game row
-    const { data: gameRow, error: gameErr } = await supabase
+    try {
+      // 1. Refresh balance
+      const { data: w } = await supabase.from('wallets').select('balance').eq('user_id', user.id).single();
+      if ((w?.balance || 0) < stake) {
+        alert("Insufficient funds");
+        setJoining(false);
+        return;
+      }
+
+      // Fetch game row
+      const { data: gameRow, error: gameErr } = await supabase
         .from('games')
         .select('id')
         .eq('key', gameId)
         .single();
 
-    if (gameErr || !gameRow) {
+      if (gameErr || !gameRow) {
         console.error("Game lookup error:", gameErr);
         alert("Could not load game details. Check console.");
         setJoining(false);
         return;
-    }
+      }
 
-    // Insert into queue
-    const { data: queueRow, error: queueErr } = await supabase
+      // Insert into queue
+      const { data: queueRow, error: queueErr } = await supabase
         .from('matchmaking_queue')
         .insert({
-            user_id: user.id,
-            game_id: gameRow.id,
-            stake_amount: stake,
-            status: 'waiting'
+          user_id: user.id,
+          game_id: gameRow.id,
+          stake_amount: stake,
+          status: 'waiting'
         })
         .select()
         .single();
 
-    if (queueErr) {
+      if (queueErr) {
         console.error("Matchmaking queue insert error:", queueErr);
         alert(`Failed to join queue: ${queueErr.message}`);
         setJoining(false);
         return;
-    }
+      }
 
-    // ON SUCCESS
-    setActiveQueueId(queueRow.id);
-    setArenaSubView('hub');
-    setJoining(false);
-    
-    setQueueModal({
-      isOpen: true,
-      gameId,
-      stake,
-    });
+      // ON SUCCESS
+      setActiveQueueId(queueRow.id);
+      setArenaSubView('hub');
+      
+      setQueueModal({
+        isOpen: true,
+        gameId,
+        stake,
+      });
+    } catch (err: any) {
+      console.error("Queue join error:", err);
+      alert(`Error joining queue: ${err.message || 'Unknown error'}`);
+    } finally {
+      setJoining(false);
+    }
   };
 
   const handleMatchFoundFromQueue = (opponent: MatchParticipant) => {
@@ -418,18 +450,141 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                 {/* 4. Activity */}
                 <div className="space-y-4 pt-4 border-t border-white/[0.08]">
-                  <h3 className="text-lg font-bold text-white">Recent Activity</h3>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-white font-mono flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-[#F5A623]" />
+                        Recent Activity
+                      </h3>
+                      <p className="text-xs text-neutral-400 mt-0.5">
+                        Tap any activity below to view full details and verified escrow ledger receipts
+                      </p>
+                    </div>
+
+                    {activityList.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setCurrentTab('wallet')}
+                        className="text-xs font-mono font-bold text-[#F5A623] hover:text-[#e0951e] flex items-center gap-1 transition-colors px-2.5 py-1 rounded-lg hover:bg-white/[0.04] cursor-pointer"
+                      >
+                        <span>View All ({activityList.length})</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
                   {activityList.length > 0 ? (
-                    activityList.slice(0, 5).map((tx: any) => (
-                      <div key={tx.id} className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06] flex items-center justify-between gap-3 text-xs font-mono">
-                        <span className="text-white">{tx.description || tx.reference_id}</span>
-                        <span className={tx.amount_coins >= 0 ? 'text-emerald-400' : 'text-red-400'}>{tx.amount_coins} AC</span>
-                      </div>
-                    ))
+                    <div className="divide-y divide-white/[0.04] bg-white/[0.02] border border-white/[0.06] rounded-2xl overflow-hidden shadow-xl">
+                      {activityList.slice(0, 6).map((tx: any) => {
+                        const coins = getSafeCoins(
+                          tx.amount_coins !== undefined
+                            ? tx.amount_coins
+                            : (tx.coins !== undefined ? tx.coins : (tx.amount ?? 0))
+                        );
+                        const isRefund = tx.type === 'match_refund' || tx.type === 'refund';
+                        const isPositive = coins >= 0 || isRefund;
+                        const isDeposit = tx.type === 'deposit';
+                        const isWin = tx.type === 'win_payout';
+                        const isWithdraw = tx.type === 'withdrawal';
+                        const isLocked = tx.type === 'stake_locked';
+
+                        return (
+                          <div
+                            key={tx.id || tx.reference_id || Math.random().toString()}
+                            onClick={() => setSelectedTransaction(tx)}
+                            className="p-4 flex items-center justify-between gap-3 text-xs font-mono hover:bg-white/[0.05] active:bg-white/[0.08] transition-all cursor-pointer group"
+                            role="button"
+                            tabIndex={0}
+                          >
+                            <div className="flex items-center gap-3.5 min-w-0">
+                              <div
+                                className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform group-hover:scale-105 shadow-md ${
+                                  isWin || isDeposit
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                    : isRefund
+                                    ? 'bg-[#F5A623]/15 text-[#F5A623] border border-[#F5A623]/30'
+                                    : isWithdraw
+                                    ? 'bg-[#F5A623]/15 text-[#F5A623] border border-[#F5A623]/30'
+                                    : 'bg-white/[0.06] text-neutral-300 border border-white/[0.1]'
+                                }`}
+                              >
+                                {isWin ? (
+                                  <Trophy className="w-4 h-4 text-amber-400" />
+                                ) : isDeposit ? (
+                                  <ArrowDownLeft className="w-4 h-4 text-emerald-400" />
+                                ) : isRefund ? (
+                                  <RotateCcw className="w-4 h-4 text-[#F5A623]" />
+                                ) : isWithdraw ? (
+                                  <ArrowUpRight className="w-4 h-4 text-[#F5A623]" />
+                                ) : (
+                                  <Lock className="w-4 h-4 text-amber-300" />
+                                )}
+                              </div>
+
+                              <div className="min-w-0">
+                                <span className="text-white font-bold block truncate group-hover:text-[#F5A623] transition-colors">
+                                  {isRefund
+                                    ? 'Match Stake Refund'
+                                    : (tx.description ||
+                                        (tx.type ? String(tx.type).replace(/_/g, ' ').toUpperCase() : '') ||
+                                        tx.reference_id ||
+                                        'Transaction Activity')}
+                                </span>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="text-[10px] text-neutral-500">
+                                    {new Date(tx.created_at || Date.now()).toLocaleString('en-NG', {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                  </span>
+                                  <span
+                                    className={`text-[9px] uppercase px-1.5 py-0.5 rounded font-bold ${
+                                      tx.status === 'completed'
+                                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                                        : tx.status === 'locked'
+                                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/20'
+                                        : 'bg-neutral-500/15 text-neutral-400 border border-neutral-500/20'
+                                    }`}
+                                  >
+                                    {tx.status === 'locked' ? 'In Escrow' : tx.status || 'Completed'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 flex-shrink-0 text-right">
+                              <div>
+                                <span
+                                  className={`font-black tabular-nums block ${
+                                    isPositive ? 'text-emerald-400' : 'text-neutral-200'
+                                  }`}
+                                >
+                                  {isPositive ? `+${Math.abs(coins)}` : coins} Coins
+                                </span>
+                                <span className="text-[10px] text-neutral-500 block">
+                                  ₦{getSafeNaira(coins)} NGN
+                                </span>
+                              </div>
+                              <ChevronRight className="w-4 h-4 text-neutral-600 group-hover:text-[#F5A623] group-hover:translate-x-0.5 transition-all" />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   ) : (
                     <div className="p-8 rounded-2xl bg-white/[0.02] border border-white/[0.06] text-center space-y-3">
-                      <p className="text-xs text-neutral-400">No recent activity yet. Deposit and play to start seeing your history!</p>
-                      <button type="button" onClick={() => setCurrentTab('arena')} className="py-2.5 px-5 rounded-xl text-xs font-bold bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-black font-mono">Head to Arena</button>
+                      <p className="text-xs text-neutral-400">
+                        No recent activity yet. Deposit and play to start seeing your history!
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentTab('arena')}
+                        className="py-2.5 px-5 rounded-xl text-xs font-bold bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-black font-mono cursor-pointer shadow-lg shadow-[#F5A623]/20 hover:brightness-110"
+                      >
+                        Head to Arena
+                      </button>
                     </div>
                   )}
                 </div>
@@ -439,11 +594,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <ArenaHub
                 onOpenRules={(gameId: GameId) => setRulesGameId(gameId)}
                 onOpenQueue={(gameId: GameId, stake: number) => handleOpenQueue(gameId, stake)}
-                onOpenCreateRoom={(gameId: GameId) =>
+                onOpenCreateRoom={(gameId?: GameId) =>
                   setPrivateRoomModal({ isOpen: true, mode: 'create', gameId })
                 }
                 onOpenJoinRoom={() => setPrivateRoomModal({ isOpen: true, mode: 'join' })}
                 onOpenDeposit={() => setIsDepositModalOpen(true)}
+                onRefundCompleted={() => {
+                  if (onRefreshData) onRefreshData();
+                }}
+                isJoining={joining}
+                onCancelChallenge={onCancelChallenge}
                 walletBalance={availableCoins}
                 onNavigateTab={(tab) => {
                   setArenaSubView('hub');
@@ -539,8 +699,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <PrivateRoomLobbyModal
         isOpen={privateRoomModal.isOpen}
         initialMode={privateRoomModal.mode}
+        initialGame={privateRoomModal.gameId}
         initialRoomCode={privateRoomModal.roomCode}
         onClose={() => setPrivateRoomModal((prev) => ({ ...prev, isOpen: false }))}
+        onRefundCompleted={() => {
+          if (onRefreshData) onRefreshData();
+        }}
         onMatchMatched={handlePrivateRoomMatched}
       />
 
@@ -555,6 +719,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onCountdownComplete={handleVersusCountdownComplete}
         />
       )}
+
+      {/* Transaction Details Modal */}
+      <TransactionDetailModal
+        isOpen={Boolean(selectedTransaction)}
+        transaction={selectedTransaction}
+        onClose={() => setSelectedTransaction(null)}
+        onGoToWallet={() => {
+          setSelectedTransaction(null);
+          setCurrentTab('wallet');
+        }}
+      />
     </div>
   );
 };

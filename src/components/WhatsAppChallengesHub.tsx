@@ -19,16 +19,21 @@ import {
 } from 'lucide-react';
 import { GameId, MatchData } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
 import { fetchUserWhatsAppChallenges, cancelPrivateRoomRpc } from '../lib/supabase';
 
 interface WhatsAppChallengesHubProps {
-  onCreateChallenge: (gameId: GameId) => void;
+  onCreateChallenge: (gameId?: GameId) => void;
   onJoinRoom: () => void;
+  onRefundCompleted?: () => void;
+  onCancelChallenge?: (matchId: string) => Promise<void>;
 }
 
 export const WhatsAppChallengesHub: React.FC<WhatsAppChallengesHubProps> = ({
   onCreateChallenge,
   onJoinRoom,
+  onRefundCompleted,
+  onCancelChallenge,
 }) => {
   const { user, refundStakeForCancelledMatch } = useAuth();
   const [challenges, setChallenges] = useState<MatchData[]>([]);
@@ -97,22 +102,48 @@ export const WhatsAppChallengesHub: React.FC<WhatsAppChallengesHubProps> = ({
   };
 
   const handleCancelChallenge = async (challenge: MatchData) => {
+    if (cancellingId === challenge.id) return;
     setCancellingId(challenge.id);
     try {
-      // 1. Refund the locked stake back to user balance immediately
+      // 1. Call PostgreSQL RPC cancel_private_room directly
+      const { data, error } = await supabase.rpc('cancel_private_room', {
+        p_match_id: challenge.id,
+      });
+
+      if (error) {
+        console.warn('cancel_private_room RPC notice:', error.message);
+      }
+
+      // 2. Also invoke parent onCancelChallenge if supplied
+      if (onCancelChallenge) {
+        try {
+          await onCancelChallenge(challenge.id);
+        } catch {}
+      }
+
+      // 3. Cancel in Supabase / Local storage / Registry
+      await cancelPrivateRoomRpc(challenge.id, challenge.room_code);
+
+      // 4. Refund the locked stake back to user balance immediately
       await refundStakeForCancelledMatch(
         challenge.stake_amount,
         challenge.id,
         `WhatsApp room ${challenge.room_code} cancelled`
       );
-      // 2. Cancel in Supabase / Local storage
-      await cancelPrivateRoomRpc(challenge.id, challenge.room_code);
-      // 3. Update local state
+
+      // 5. Update local challenges state to dismiss card
       setChallenges((prev) =>
-        prev.map((c) => (c.id === challenge.id ? { ...c, status: 'cancelled' } : c))
+        prev.map((c) =>
+          c.id === challenge.id || (challenge.room_code && c.room_code === challenge.room_code)
+            ? { ...c, status: 'cancelled' }
+            : c
+        )
       );
-    } catch (err) {
+
+      if (onRefundCompleted) onRefundCompleted();
+    } catch (err: any) {
       console.error('Failed to cancel challenge:', err);
+      alert(`Failed to cancel: ${err.message || 'Unknown error'}`);
     } finally {
       setCancellingId(null);
     }
@@ -253,7 +284,7 @@ export const WhatsAppChallengesHub: React.FC<WhatsAppChallengesHubProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => onCreateChallenge('whot')}
+                onClick={() => onCreateChallenge()}
                 className="py-1.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#20BD5A] text-black font-mono font-bold text-xs flex items-center gap-1.5 transition-all shadow-md"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -388,14 +419,14 @@ export const WhatsAppChallengesHub: React.FC<WhatsAppChallengesHubProps> = ({
                               type="button"
                               onClick={() => handleCancelChallenge(challenge)}
                               disabled={cancellingId === challenge.id}
-                              className="py-2 px-3.5 rounded-xl font-mono font-bold text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 transition-all flex items-center gap-1.5 cursor-pointer"
+                              className="py-2 px-3.5 rounded-xl font-mono font-bold text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                               title="Cancel challenge and immediately refund locked coins"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                               <span>
                                 {cancellingId === challenge.id
-                                  ? 'Refunding...'
-                                  : 'Cancel & Refund'}
+                                  ? 'Cancelling...'
+                                  : 'Cancel Challenge'}
                               </span>
                             </button>
                           </>
@@ -426,7 +457,7 @@ export const WhatsAppChallengesHub: React.FC<WhatsAppChallengesHubProps> = ({
               <div className="pt-2">
                 <button
                   type="button"
-                  onClick={() => onCreateChallenge('whot')}
+                  onClick={() => onCreateChallenge()}
                   className="py-2.5 px-4 rounded-xl text-xs font-mono font-bold bg-[#25D366] hover:bg-[#20BD5A] text-black transition-all flex items-center gap-1.5 mx-auto cursor-pointer shadow-lg shadow-[#25D366]/20"
                 >
                   <Plus className="w-3.5 h-3.5" />

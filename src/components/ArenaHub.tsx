@@ -24,9 +24,12 @@ import triviaImg from '../assets/images/game_trivia_showcase_1791369433515.jpg';
 interface ArenaHubProps {
   onOpenRules?: (gameId: GameId) => void;
   onOpenQueue: (gameId: GameId, stake: number) => void;
-  onOpenCreateRoom: (gameId: GameId) => void;
+  onOpenCreateRoom: (gameId?: GameId) => void;
   onOpenJoinRoom: () => void;
   onOpenDeposit: () => void;
+  onRefundCompleted?: () => void;
+  isJoining?: boolean;
+  onCancelChallenge?: (matchId: string) => Promise<void>;
   walletBalance?: number;
   onNavigateTab?: (tab: DashboardTab) => void;
 }
@@ -37,6 +40,9 @@ export const ArenaHub: React.FC<ArenaHubProps> = ({
   onOpenCreateRoom,
   onOpenJoinRoom,
   onOpenDeposit,
+  onRefundCompleted,
+  isJoining,
+  onCancelChallenge,
   walletBalance: propWalletBalance,
   onNavigateTab,
 }) => {
@@ -165,6 +171,7 @@ export const ArenaHub: React.FC<ArenaHubProps> = ({
           gameId={selectedGame}
           walletBalance={effectiveWalletBalance}
           selectedStake={selectedStake}
+          isJoining={isJoining}
           onSelectStake={(stake) => setSelectedStake(stake)}
           onBack={() => setArenaSubView('hub')}
           onFindMatch={handleFindMatch}
@@ -208,6 +215,8 @@ export const ArenaHub: React.FC<ArenaHubProps> = ({
           <WhatsAppChallengesHub
             onCreateChallenge={onOpenCreateRoom}
             onJoinRoom={onOpenJoinRoom}
+            onRefundCompleted={onRefundCompleted}
+            onCancelChallenge={onCancelChallenge}
           />
 
           {/* 3. THE 4 DISCIPLINE SHOWCASE CARDS */}

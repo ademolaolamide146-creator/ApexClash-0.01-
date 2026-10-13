@@ -162,3 +162,14 @@ export interface QueueEntry {
 
 export type LegalDocType = 'terms' | 'privacy' | 'fair_play' | 'responsible_gaming' | 'skill_compliance';
 
+export const getSafeCoins = (amt: any): number => {
+  if (amt === null || amt === undefined) return 0;
+  const num = typeof amt === 'number' ? amt : parseFloat(String(amt));
+  return isNaN(num) ? 0 : Math.round(num);
+};
+
+export const getSafeNaira = (amt: any): string => {
+  const coins = getSafeCoins(amt);
+  return (coins * 10).toLocaleString();
+};
+

@@ -24,8 +24,10 @@ import { ErrorCard } from './ErrorCard';
 interface PrivateRoomLobbyModalProps {
   isOpen: boolean;
   initialMode?: 'create' | 'join';
+  initialGame?: GameId;
   initialRoomCode?: string;
   onClose: () => void;
+  onRefundCompleted?: () => void;
   onMatchMatched: (
     gameId: GameId,
     stake: number,
@@ -37,32 +39,40 @@ interface PrivateRoomLobbyModalProps {
 export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
   isOpen,
   initialMode = 'create',
+  initialGame,
   initialRoomCode = '',
   onClose,
+  onRefundCompleted,
   onMatchMatched,
 }) => {
   const { user, wallet, lockStakeForMatch, refundStakeForCancelledMatch } = useAuth();
   const [tab, setTab] = useState<'create' | 'join'>(initialMode);
 
   // Create state
-  const [selectedGame, setSelectedGame] = useState<GameId>('whot');
+  const [selectedGame, setSelectedGame] = useState<GameId>(initialGame || 'whot');
   const [selectedStake, setSelectedStake] = useState<number>(100);
   const [roomCode, setRoomCode] = useState<string>('');
+  const [createdMatchId, setCreatedMatchId] = useState<string>('');
   const [isRoomCreated, setIsRoomCreated] = useState<boolean>(false);
+  const [isCreatingRoom, setIsCreatingRoom] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [waitingElapsed, setWaitingElapsed] = useState<number>(0);
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
 
-  // Join state
   const [joinCodeInput, setJoinCodeInput] = useState<string>(initialRoomCode);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [isJoining, setIsJoining] = useState<boolean>(false);
+  const [isJoiningRoom, setIsJoiningRoom] = useState<boolean>(false);
 
   // Reset or initialize room code when opening
   useEffect(() => {
     if (isOpen) {
       setTab(initialMode);
+      if (initialGame) {
+        setSelectedGame(initialGame);
+      } else {
+        setSelectedGame('whot');
+      }
       if (initialRoomCode) setJoinCodeInput(initialRoomCode);
       setIsRoomCreated(false);
       setWaitingElapsed(0);
@@ -70,7 +80,7 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
       setCreateError(null);
       setIsCancelling(false);
     }
-  }, [isOpen, initialMode, initialRoomCode]);
+  }, [isOpen, initialMode, initialGame, initialRoomCode]);
 
   // Timer in waiting lobby (15 minutes = 900 seconds limit)
   useEffect(() => {
@@ -91,19 +101,26 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
   }, [isOpen, isRoomCreated]);
 
   const handleAutoExpire = async () => {
-    await refundStakeForCancelledMatch(selectedStake, undefined, 'WhatsApp room expired after 15 minutes');
-    await cancelPrivateRoomRpc('', roomCode);
+    await refundStakeForCancelledMatch(selectedStake, createdMatchId || undefined, 'WhatsApp room expired after 15 minutes');
+    await cancelPrivateRoomRpc(createdMatchId, roomCode);
     setCreateError('Challenge room expired after 15 minutes. 100% of your stake has been automatically unlocked and refunded to your wallet.');
     setIsRoomCreated(false);
+    if (onRefundCompleted) onRefundCompleted();
   };
 
   const handleCancelCreatedRoom = async () => {
     setIsCancelling(true);
-    await refundStakeForCancelledMatch(selectedStake, undefined, 'WhatsApp challenge cancelled by host');
-    await cancelPrivateRoomRpc('', roomCode);
-    setIsCancelling(false);
-    setIsRoomCreated(false);
-    onClose();
+    try {
+      await refundStakeForCancelledMatch(selectedStake, createdMatchId || undefined, `WhatsApp challenge ${roomCode} cancelled by host`);
+      await cancelPrivateRoomRpc(createdMatchId, roomCode);
+    } catch (err) {
+      console.warn('handleCancelCreatedRoom error:', err);
+    } finally {
+      setIsCancelling(false);
+      setIsRoomCreated(false);
+      onClose();
+      if (onRefundCompleted) onRefundCompleted();
+    }
   };
 
 
@@ -122,34 +139,45 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
   };
 
   const handleCreateRoom = async () => {
+    if (isCreatingRoom) return;
+    setIsCreatingRoom(true);
     setCreateError(null);
-    if ((wallet?.available_coins ?? 0) < selectedStake) {
-      setCreateError(
-        `Insufficient spendable balance. You have ${wallet?.available_coins ?? 0} Coins, but this room requires ${selectedStake} Coins.`
+
+    try {
+      if ((wallet?.available_coins ?? 0) < selectedStake) {
+        setCreateError(
+          `Insufficient spendable balance. You have ${wallet?.available_coins ?? 0} Coins, but this room requires ${selectedStake} Coins.`
+        );
+        return;
+      }
+
+      const newCode = generateRandomCode(selectedGame);
+      setRoomCode(newCode);
+
+      // Call RPC to create room and lock creator stake
+      const rpcRes = await createPrivateRoomRpc(
+        selectedGame,
+        user.id,
+        selectedStake,
+        newCode,
+        user.username
       );
-      return;
+
+      if (rpcRes.error) {
+        setCreateError(rpcRes.error);
+        return;
+      }
+
+      // Lock creator stake
+      const lockRes = await lockStakeForMatch(selectedGame, selectedStake, 'Awaiting Opponent');
+      setCreatedMatchId(rpcRes.matchId || lockRes?.matchId || '');
+      setIsRoomCreated(true);
+    } catch (err: any) {
+      console.error('Create room error:', err);
+      setCreateError(err.message || 'Failed to create room.');
+    } finally {
+      setIsCreatingRoom(false);
     }
-
-    const newCode = generateRandomCode(selectedGame);
-    setRoomCode(newCode);
-
-    // Call RPC to create room and lock creator stake
-    const rpcRes = await createPrivateRoomRpc(
-      selectedGame,
-      user.id,
-      selectedStake,
-      newCode,
-      user.username
-    );
-
-    if (rpcRes.error) {
-      setCreateError(rpcRes.error);
-      return;
-    }
-
-    // Lock creator stake
-    await lockStakeForMatch(selectedGame, selectedStake, 'Awaiting Opponent');
-    setIsRoomCreated(true);
   };
 
   const roomLink = `https://apexclash.ng/room/${roomCode}`;
@@ -200,32 +228,38 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
   };
 
   const handleJoinRoom = async () => {
+    if (isJoiningRoom) return;
     const clean = joinCodeInput.trim().toUpperCase();
     if (clean.length < 5) {
       setJoinError('Please enter a valid 6-character room code (e.g. WHOT-8K2).');
       return;
     }
 
-    setIsJoining(true);
+    setIsJoiningRoom(true);
     setJoinError(null);
 
-    const res = await joinPrivateRoomRpc(clean, user.id, user.username);
-    setIsJoining(false);
+    try {
+      const res = await joinPrivateRoomRpc(clean, user.id, user.username);
+      if (res.error) {
+        setJoinError(res.error);
+        return;
+      }
 
-    if (res.error) {
-      setJoinError(res.error);
-      return;
+      const stake = res.matchData?.stake_amount || 100;
+      const game = res.matchData?.game_id || 'whot';
+      const opponent = res.matchData?.participants[0]?.username || 'Room Host';
+
+      // Lock joiner stake
+      await lockStakeForMatch(game, stake, opponent);
+
+      onClose();
+      onMatchMatched(game, stake, opponent, 'Host Arena');
+    } catch (err: any) {
+      console.error('Join room error:', err);
+      setJoinError(err.message || 'Failed to join room.');
+    } finally {
+      setIsJoiningRoom(false);
     }
-
-    const stake = res.matchData?.stake_amount || 100;
-    const game = res.matchData?.game_id || 'whot';
-    const opponent = res.matchData?.participants[0]?.username || 'Room Host';
-
-    // Lock joiner stake
-    await lockStakeForMatch(game, stake, opponent);
-
-    onClose();
-    onMatchMatched(game, stake, opponent, 'Host Arena');
   };
 
   const formatTimer = (secs: number) => {
@@ -386,31 +420,48 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
               {/* Game Selector */}
               <div>
                 <label className="block text-xs font-semibold text-neutral-300 mb-2">
-                  Select Game
+                  {initialGame ? 'Selected Game' : 'Select Game'}
                 </label>
-                <div className="grid grid-cols-4 gap-2">
-                  {(
-                    [
-                      { id: 'whot', label: 'Whot' },
-                      { id: 'chess', label: 'Chess' },
-                      { id: 'trivia', label: 'Trivia' },
-                      { id: 'ludo', label: 'Ludo' },
-                    ] as const
-                  ).map((g) => (
-                    <button
-                      key={g.id}
-                      type="button"
-                      onClick={() => setSelectedGame(g.id)}
-                      className={`py-2 px-1 rounded-xl text-xs font-bold transition-all text-center border cursor-pointer ${
-                        selectedGame === g.id
-                          ? 'bg-[#F5A623] text-[#0A0A0A] border-[#F5A623]'
-                          : 'bg-white/[0.03] text-neutral-300 border-white/[0.08] hover:border-white/20'
-                      }`}
-                    >
-                      {g.label}
-                    </button>
-                  ))}
-                </div>
+                {initialGame ? (
+                  <div className="p-3 rounded-xl bg-[#F5A623]/10 border border-[#F5A623]/40 flex items-center justify-between">
+                    <span className="font-mono font-bold text-sm text-[#F5A623] uppercase tracking-wide">
+                      {selectedGame === 'whot'
+                        ? 'Naija Whot'
+                        : selectedGame === 'chess'
+                        ? 'Speed Chess'
+                        : selectedGame === 'trivia'
+                        ? 'Speed Trivia'
+                        : 'Ludo Classic'}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-lg bg-black/60 text-[10px] font-mono text-neutral-300 border border-white/[0.08]">
+                      Locked to Current Game
+                    </span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2">
+                    {(
+                      [
+                        { id: 'whot', label: 'Whot' },
+                        { id: 'chess', label: 'Chess' },
+                        { id: 'trivia', label: 'Trivia' },
+                        { id: 'ludo', label: 'Ludo' },
+                      ] as const
+                    ).map((g) => (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={() => setSelectedGame(g.id)}
+                        className={`py-2 px-1 rounded-xl text-xs font-bold transition-all text-center border cursor-pointer ${
+                          selectedGame === g.id
+                            ? 'bg-[#F5A623] text-[#0A0A0A] border-[#F5A623]'
+                            : 'bg-white/[0.03] text-neutral-300 border-white/[0.08] hover:border-white/20'
+                        }`}
+                      >
+                        {g.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Stake Selector */}
@@ -479,11 +530,21 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
               {/* Create CTA */}
               <button
                 type="button"
+                disabled={isCreatingRoom || (wallet?.available_coins ?? 0) < selectedStake}
                 onClick={handleCreateRoom}
-                className="w-full py-3.5 px-4 rounded-xl font-black text-xs bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-[#0A0A0A] hover:brightness-105 transition-all shadow-md shadow-[#F5A623]/20 flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3.5 px-4 rounded-xl font-black text-xs bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-[#0A0A0A] hover:brightness-105 transition-all shadow-md shadow-[#F5A623]/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
-                <Sparkles className="w-4 h-4 text-[#0A0A0A]" />
-                <span>Create Room & Generate WhatsApp Link</span>
+                {isCreatingRoom ? (
+                  <>
+                    <span className="inline-block w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    <span>Creating Private Room...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 text-[#0A0A0A]" />
+                    <span>Create Room & Generate WhatsApp Link</span>
+                  </>
+                )}
               </button>
             </div>
           ) : (
@@ -525,12 +586,15 @@ export const PrivateRoomLobbyModal: React.FC<PrivateRoomLobbyModalProps> = ({
 
               <button
                 type="button"
-                disabled={isJoining || joinCodeInput.trim().length < 5}
+                disabled={isJoiningRoom || joinCodeInput.trim().length < 5}
                 onClick={handleJoinRoom}
-                className="w-full py-3.5 px-4 rounded-xl font-bold text-xs bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-[#0A0A0A] hover:brightness-105 transition-all shadow-md shadow-[#F5A623]/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="w-full py-3.5 px-4 rounded-xl font-bold text-xs bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-[#0A0A0A] hover:brightness-105 transition-all shadow-md shadow-[#F5A623]/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isJoining ? (
-                  <span className="inline-block w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                {isJoiningRoom ? (
+                  <>
+                    <span className="inline-block w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    <span>Joining Room...</span>
+                  </>
                 ) : (
                   <>
                     <span>Enter Duel Lobby</span>

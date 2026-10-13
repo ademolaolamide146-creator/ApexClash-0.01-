@@ -10,6 +10,7 @@ import { AuthModal } from './components/AuthModal';
 import { LegalModal } from './components/LegalModal';
 import { WhatsAppRoomModal } from './components/WhatsAppRoomModal';
 import { GameId, LegalDocType, SavedBank } from './types';
+import { getLocalTransactions } from './lib/supabase';
 
 function MainApp() {
   const { user, refreshUserData } = useAuth();
@@ -28,7 +29,20 @@ function MainApp() {
   // Supabase session and view state
   const [session, setSession] = useState<Session | null>(null);
   const [currentView, setCurrentView] = useState<'landing' | 'dashboard'>('landing');
-  const [dashboardTab, setDashboardTab] = useState<'home' | 'arena' | 'rankings' | 'wallet' | 'profile'>('home');
+  const [dashboardTab, setDashboardTab] = useState<'home' | 'arena' | 'rankings' | 'wallet' | 'profile'>(() => {
+    try {
+      return (localStorage.getItem('apex_active_tab') as any) || 'home';
+    } catch {
+      return 'home';
+    }
+  });
+  const [isAuthResolving, setIsAuthResolving] = useState<boolean>(true);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('apex_active_tab', dashboardTab);
+    } catch {}
+  }, [dashboardTab]);
 
   // Real Supabase database state for Dashboard
   const [realUsername, setRealUsername] = useState<string>('');
@@ -37,6 +51,20 @@ function MainApp() {
     balance: 0,
     locked_balance: 0,
   });
+  const [walletBalance, setWalletBalanceState] = useState<number>(0);
+  const [lockedBalance, setLockedBalanceState] = useState<number>(0);
+  const [isCancelling, setIsCancelling] = useState<boolean>(false);
+  const [activePrivateRoom, setActivePrivateRoom] = useState<string | null>(null);
+
+  const setWalletBalance = useCallback((b: number) => {
+    setWalletBalanceState(b);
+    setRealWallet((prev) => ({ ...prev, balance: b }));
+  }, []);
+
+  const setLockedBalance = useCallback((lb: number) => {
+    setLockedBalanceState(lb);
+    setRealWallet((prev) => ({ ...prev, locked_balance: lb }));
+  }, []);
   const [realTransactions, setRealTransactions] = useState<any[]>([]);
 
   // Modals state
@@ -53,6 +81,23 @@ function MainApp() {
   // Network offline/online status state
   const [isOffline, setIsOffline] = useState<boolean>(() => !navigator.onLine);
   const [showRestoredToast, setShowRestoredToast] = useState<boolean>(false);
+
+  // 1. Fetch wallet balance from Supabase wallets table
+  const fetchWalletBalance = useCallback(async (userId: string) => {
+    try {
+      const { data: w } = await supabase
+        .from('wallets')
+        .select('balance, locked_balance')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (w) {
+        setWalletBalance(w.balance ?? 0);
+        setLockedBalance(w.locked_balance ?? 0);
+      }
+    } catch (err) {
+      console.warn('fetchWalletBalance error:', err);
+    }
+  }, [setWalletBalance, setLockedBalance]);
 
   // 2. PURGE ALL DUMMY / DEMO DASHBOARD DATA:
   // When an authenticated session is active, fetch real data from Supabase
@@ -79,6 +124,8 @@ function MainApp() {
         setRealUsername(uname);
         setSavedBank(bankData);
         setRealWallet(realWallet);
+        setWalletBalanceState(realWallet?.balance ?? 0);
+        setLockedBalanceState(realWallet?.locked_balance ?? 0);
         setRealTransactions(realTransactions);
       }
 
@@ -107,18 +154,36 @@ function MainApp() {
       let lockedBal = user?.locked_balance_coins ?? profileLocked;
 
       if (walletRes.data) {
-        bal = walletRes.data.balance ?? profileCoins;
-        lockedBal = walletRes.data.locked_balance ?? profileLocked;
+        bal = Math.max(user?.wallet_balance_coins ?? 0, walletRes.data.balance ?? profileCoins);
+        lockedBal =
+          user?.locked_balance_coins !== undefined
+            ? user.locked_balance_coins
+            : (walletRes.data.locked_balance ?? profileLocked);
       } else {
         try { await supabase.from('wallets').upsert({ user_id: userId, balance: bal, locked_balance: lockedBal }); } catch {}
       }
 
       const realWalletData = { balance: bal, locked_balance: lockedBal };
-      const realTransactions = txRes.data || [];
+      const remoteTxs = txRes.data || [];
+      const localTxs = getLocalTransactions(userId);
+      const txMap = new Map<string, any>();
+      localTxs.forEach((t) => {
+        if (t?.id) txMap.set(t.id, t);
+        else if (t?.reference_id) txMap.set(t.reference_id, t);
+      });
+      remoteTxs.forEach((t: any) => {
+        if (t?.id) txMap.set(t.id, t);
+        else if (t?.reference_id) txMap.set(t.reference_id, t);
+      });
+      const realTransactions = Array.from(txMap.values()).sort(
+        (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      );
 
       setRealUsername(uname);
       setSavedBank(bankData);
       setRealWallet(realWalletData);
+      setWalletBalanceState(bal);
+      setLockedBalanceState(lockedBal);
       setRealTransactions(realTransactions);
 
       localStorage.setItem(cacheKey, JSON.stringify({ uname, bankData, realWallet: realWalletData, realTransactions }));
@@ -140,6 +205,96 @@ function MainApp() {
     }
   }, [fetchRealDashboardData, refreshUserData]);
 
+  // Check active matches and refresh wallet state across all screens
+  const checkActiveMatches = useCallback(async (userId: string) => {
+    try {
+      await fetchRealDashboardData();
+      if (refreshUserData) {
+        await refreshUserData();
+      }
+    } catch (err) {
+      console.warn('checkActiveMatches error:', err);
+    }
+  }, [fetchRealDashboardData, refreshUserData]);
+
+  // 1. GLOBAL REALTIME WALLET & MATCH LISTENER
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    // 1. Initial wallet fetch
+    fetchWalletBalance(session.user.id);
+
+    // 2. Global Realtime Subscription on wallets table
+    const walletChannel = supabase
+      .channel(`realtime_wallet_${session.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'wallets',
+          filter: `user_id=eq.${session.user.id}`
+        },
+        (payload: any) => {
+          if (payload.new) {
+            setWalletBalance(payload.new.balance);
+            setLockedBalance(payload.new.locked_balance);
+            if (refreshUserData) {
+              refreshUserData();
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    // 3. Realtime Subscription on matches table (detects cancellations and settlements live)
+    const matchesChannel = supabase
+      .channel(`realtime_matches_${session.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'matches'
+        },
+        () => {
+          // Instantly refresh active match and wallet state across all screens without reloading
+          checkActiveMatches(session.user.id);
+          fetchWalletBalance(session.user.id);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(walletChannel);
+      supabase.removeChannel(matchesChannel);
+    };
+  }, [session?.user?.id]);
+
+  // 3. WIRE "CANCEL CHALLENGE" TO cancel_private_room RPC
+  const handleCancelChallenge = async (matchId: string) => {
+    try {
+      setIsCancelling(true);
+      const { data, error } = await supabase.rpc('cancel_private_room', {
+        p_match_id: matchId
+      });
+      if (error) {
+        alert(`Failed to cancel: ${error.message}`);
+        return;
+      }
+      // Realtime will auto-update the balance, but also clear local active challenge state
+      setActivePrivateRoom(null);
+      if (session?.user?.id) {
+        fetchWalletBalance(session.user.id);
+        checkActiveMatches(session.user.id);
+      }
+    } catch (err: any) {
+      console.error("Cancel room error:", err);
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
   // 1. FIX onAuthStateChange ROUTING TRAP:
   // Do NOT add an else { setCurrentView('landing'); } branch!
   useEffect(() => {
@@ -149,6 +304,9 @@ function MainApp() {
         setCurrentView('dashboard');
         fetchRealDashboardData(existingSession);
       }
+      setIsAuthResolving(false);
+    }).catch(() => {
+      setIsAuthResolving(false);
     });
 
     const {
@@ -162,6 +320,7 @@ function MainApp() {
         setSession(null);
         setCurrentView('landing');
       }
+      setIsAuthResolving(false);
     });
 
     return () => {
@@ -363,6 +522,19 @@ function MainApp() {
     setDashboardTab('arena');
   };
 
+  if (isAuthResolving) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex flex-col items-center justify-center p-4">
+        <div className="space-y-4 text-center animate-pulse">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-[#F5A623]/20 border border-[#F5A623]/40 flex items-center justify-center text-[#F5A623] font-mono font-black text-2xl shadow-xl shadow-[#F5A623]/20">
+            AC
+          </div>
+          <p className="text-sm font-mono text-neutral-300 tracking-wider">ApexClash...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-neutral-100 flex flex-col font-sans selection:bg-[#F5A623]/20 selection:text-[#F5A623]">
       
@@ -420,6 +592,8 @@ function MainApp() {
             onRefreshData={handleRefreshData}
             savedBank={savedBank}
             onUpdateSavedBank={(bank) => setSavedBank(bank)}
+            onCancelChallenge={handleCancelChallenge}
+            activePrivateRoom={activePrivateRoom}
           />
         ) : (
           <LandingPage
