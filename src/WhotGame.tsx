@@ -1,594 +1,627 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Trophy,
-  ShieldAlert,
-  XCircle,
-  RotateCcw,
-  Sparkles,
-  ArrowRight,
-  Flame,
-  Volume2,
-  VolumeX,
-  Clock,
-  Zap,
-} from 'lucide-react';
-import { ActiveMatch } from './types';
-import { useAuth } from './context/AuthContext';
-import { supabase } from './supabaseClient';
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { supabase } from "./supabaseClient";
 
-interface WhotGameProps {
-  match: ActiveMatch;
-  onExit: () => void;
-  onSettle: (matchId: string, result: 'win' | 'loss' | 'draw') => Promise<void>;
-  onPlayAgain?: () => void;
+/* ============================================================================
+   APEXCLASH — NIGERIAN WHOT GAME ENGINE (v1.0 Production)
+   Rules: Standard 54-Card Deck (1, 2, 5, 8, 14, 20)
+   Dual-Clock: 10-Minute Total Match Limit • 30-Second Turn Watchdog
+   Scoring: Stars = 2× Face Value • Lowest Points Wins On Timeout
+   ============================================================================ */
+
+const SHAPE_COLORS = {
+  circle: "#3B82F6",   // Electric Blue
+  triangle: "#DC2626", // Crimson
+  cross: "#10B981",    // Emerald Green
+  square: "#F59E0B",   // Amber
+  star: "#F5A623",     // Apex Gold
+  whot: "#F5A623",     // Apex Gold
+};
+
+// --- VECTOR SHAPE RENDERER ---
+function ShapeIcon({ shape, size = 24, overrideColor }) {
+  const color = overrideColor || SHAPE_COLORS[shape?.toLowerCase()] || "#FFFFFF";
+  const s = shape?.toLowerCase();
+
+  if (s === "circle") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="8.5" stroke={color} strokeWidth="3.5" />
+      </svg>
+    );
+  }
+
+  if (s === "triangle") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <polygon points="12,3 21,19 3,19" stroke={color} strokeWidth="3.5" />
+      </svg>
+    );
+  }
+
+  if (s === "cross") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <path d="M12 4V20M4 12H20" stroke={color} strokeWidth="4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (s === "square") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <rect x="4" y="4" width="16" height="16" stroke={color} strokeWidth="3.5" />
+      </svg>
+    );
+  }
+
+  if (s === "star") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26" />
+      </svg>
+    );
+  }
+
+  if (s === "whot") {
+    return (
+      <span
+        style={{
+          fontSize: size * 0.58,
+          fontWeight: 900,
+          color: "#F5A623",
+          fontFamily: "DM Mono, monospace",
+          letterSpacing: "-0.5px",
+        }}
+      >
+        WHOT
+      </span>
+    );
+  }
+
+  return null;
 }
 
-interface Card {
-  id?: string;
-  shape: '★' | '▲' | '■' | '●' | '🃟';
-  num: number;
-}
+export function WhotGame({ matchId, stake = 50, onExit }) {
+  const [gameState, setGameState] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
-export const WhotGame: React.FC<WhotGameProps> = ({
-  match,
-  onExit,
-  onSettle,
-  onPlayAgain,
-}) => {
-  const { user } = useAuth();
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [matchSeconds, setMatchSeconds] = useState(match.remainingSeconds || 180);
-  const [gameStatus, setGameStatus] = useState<'playing' | 'completed'>('playing');
-  const [matchResult, setMatchResult] = useState<'win' | 'loss' | 'forfeit'>('win');
-  const [turnNumber, setTurnNumber] = useState(6);
-  
-  // Whot State
-  const [whotCallCard, setWhotCallCard] = useState<Card>({ shape: '★', num: 14 });
-  const [myHand, setMyHand] = useState<Card[]>([
-    { id: 'c1', shape: '★', num: 7 },
-    { id: 'c2', shape: '▲', num: 14 },
-    { id: 'c3', shape: '■', num: 1 },
-    { id: 'c4', shape: '●', num: 2 },
-    { id: 'c5', shape: '★', num: 20 },
-  ]);
-  const [oppCardCount, setOppCardCount] = useState(4);
-  const [actionLog, setActionLog] = useState<string>('Match synchronized via whot-get-state.');
-  
-  // Quit & Forfeit Modal State
-  const [showQuitModal, setShowQuitModal] = useState(false);
-  const [settling, setSettling] = useState(false);
+  // Modals
+  const [showWhotModal, setShowWhotModal] = useState(false);
+  const [pendingCardId, setPendingCardId] = useState(null);
+  const [showQuitConfirm, setShowQuitConfirm] = useState(false);
 
-  // Sound synthesis helper
-  const playSound = (type: 'card' | 'win' | 'lose' | 'click' | 'forfeit') => {
-    if (!soundEnabled) return;
+  // Dual Clocks
+  const [matchTimeLeft, setMatchTimeLeft] = useState(600); // 10 minutes (seconds)
+  const [turnTimeLeft, setTurnTimeLeft] = useState(30);     // 30 seconds turn limit
+
+  const timerRef = useRef(null);
+
+  // 1. Fetch Sanitized Match State from Edge Function
+  const fetchState = useCallback(async () => {
     try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      setCurrentUserId(session.user.id);
 
-      if (type === 'card') {
-        osc.frequency.setValueAtTime(440, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.1, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.1);
-      } else if (type === 'win') {
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(523.25, ctx.currentTime);
-        osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.15);
-        osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.3);
-        osc.frequency.setValueAtTime(1046.50, ctx.currentTime + 0.45);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.8);
-      } else if (type === 'lose' || type === 'forfeit') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(220, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 0.4);
-        gain.gain.setValueAtTime(0.2, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.4);
-      } else {
-        osc.frequency.setValueAtTime(300, ctx.currentTime);
-        gain.gain.setValueAtTime(0.05, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.05);
+      const { data, error } = await supabase.functions.invoke("whot-get-state", {
+        body: { match_id: matchId },
+      });
+
+      if (error || !data) {
+        console.error("whot-get-state error:", error);
+        setErrorMsg(error?.message || "Sync failure");
+        return;
       }
-    } catch {
-      // Audio context error ignored
-    }
-  };
 
-  // 1. Fetch Board via whot-get-state Edge Function on mount & Realtime on whot_games
+      setGameState(data);
+      if (typeof data.match_remaining_seconds === "number") {
+        setMatchTimeLeft(data.match_remaining_seconds);
+      }
+      if (typeof data.turn_remaining_seconds === "number") {
+        setTurnTimeLeft(data.turn_remaining_seconds);
+      }
+    } catch (err) {
+      console.error("Network sync err:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [matchId]);
+
+  // 2. Realtime WebSocket Channel
   useEffect(() => {
-    let isMounted = true;
-    async function fetchWhotState() {
-      try {
-        const { data, error } = await supabase.functions.invoke('whot-get-state', {
-          body: { match_id: match.id },
-        });
-        if (!error && data && isMounted) {
-          if (data.call_card) setWhotCallCard(data.call_card);
-          if (data.my_hand) setMyHand(data.my_hand);
-          if (data.opponent_card_count !== undefined) setOppCardCount(data.opponent_card_count);
-          if (data.action_log) setActionLog(data.action_log);
-        }
-      } catch {
-        // Fallback gracefully if Edge Function is in mock/stub mode
-      }
-    }
-    fetchWhotState();
+    fetchState();
 
-    // Supabase Realtime Subscription on whot_games table with filter match_id=eq.{match.id}
     const channel = supabase
-      .channel(`whot-match-${match.id}`)
+      .channel(`whot_live_${matchId}`)
       .on(
-        'postgres_changes',
+        "postgres_changes",
         {
-          event: '*',
-          schema: 'public',
-          table: 'whot_games',
-          filter: `match_id=eq.${match.id}`,
+          event: "*",
+          schema: "public",
+          table: "whot_games",
+          filter: `match_id=eq.${matchId}`,
         },
-        (payload) => {
-          if (payload.new && isMounted) {
-            const row: any = payload.new;
-            if (row.call_card) setWhotCallCard(row.call_card);
-            if (row.opponent_card_count !== undefined) setOppCardCount(row.opponent_card_count);
-            if (row.status === 'completed') {
-              setMatchResult(row.winner_id === user?.id ? 'win' : 'loss');
-              setGameStatus('completed');
-            }
-          }
+        () => {
+          fetchState();
         }
       )
       .subscribe();
 
     return () => {
-      isMounted = false;
       supabase.removeChannel(channel);
+      if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [match.id, user?.id]);
+  }, [matchId, fetchState]);
 
-  // Match clock countdown
+  // 3. Local Clocks Tick (Reconciled with Server on 0s)
   useEffect(() => {
-    if (gameStatus === 'completed') return;
-    const interval = setInterval(() => {
-      setMatchSeconds((prev) => {
-        if (prev <= 1) {
-          handleForfeitMatch();
+    if (!gameState || gameState.status !== "in_progress") return;
+
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    timerRef.current = setInterval(() => {
+      setTurnTimeLeft((prevTurn) => {
+        if (prevTurn <= 1) {
+          fetchState(); // Trigger server watchdog evaluation
           return 0;
         }
-        return prev - 1;
+        return prevTurn - 1;
+      });
+
+      setMatchTimeLeft((prevMatch) => {
+        if (prevMatch <= 1) {
+          fetchState(); // Trigger server 10-minute timeout calculation
+          return 0;
+        }
+        return prevMatch - 1;
       });
     }, 1000);
-    return () => clearInterval(interval);
-  }, [gameStatus]);
 
-  const formatTimer = (secs: number) => {
-    const m = Math.floor(secs / 60).toString().padStart(2, '0');
-    const s = (secs % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [gameState?.status, gameState?.turn_number, fetchState]);
+
+  // 4. Move Legality Checker
+  const isCardPlayable = (card) => {
+    if (!gameState || !gameState.is_my_turn || submitting) return false;
+    const top = gameState.top_discard;
+    if (!top) return false;
+
+    // Must defend Pick 2 / Pick 3 if penalty is active
+    if (gameState.pending_draw_count > 0) {
+      return card.number === top.number;
+    }
+
+    // Must match declared shape or play another Whot 20
+    if (gameState.called_shape) {
+      return card.shape === gameState.called_shape || card.number === 20;
+    }
+
+    // Standard shape / number match or Whot 20 wild
+    return (
+      card.shape === top.shape ||
+      card.number === top.number ||
+      card.number === 20
+    );
   };
 
-  // 2. Play Card via whot-action Edge Function
-  const handlePlayCard = async (card: Card, index: number) => {
-    playSound('card');
-    const shape = card.shape === '🃟' ? '★' : undefined;
+  // 5. Server-Authoritative Action Dispatcher
+  const handleAction = async (payload) => {
+    if (submitting) return;
+    setSubmitting(true);
+    setErrorMsg("");
 
     try {
-      const { data, error } = await supabase.functions.invoke('whot-action', {
-        body: {
-          match_id: match.id,
-          action: 'play_card',
-          card_id: card.id || `card_${index}`,
-          called_shape: shape,
-        },
+      const { data, error } = await supabase.functions.invoke("whot-action", {
+        body: { match_id: matchId, ...payload },
       });
 
-      if (!error && data) {
-        if (data.call_card) setWhotCallCard(data.call_card);
-        if (data.my_hand) setMyHand(data.my_hand);
-        else {
-          const updatedHand = myHand.filter((_, i) => i !== index);
-          setMyHand(updatedHand);
-          if (updatedHand.length === 0) {
-            playSound('win');
-            handleCompleteMatch('win');
-            return;
-          }
-        }
-        if (data.opponent_card_count !== undefined) setOppCardCount(data.opponent_card_count);
-        setActionLog(data.message || 'Card played successfully.');
+      if (error || (data && data.error)) {
+        setErrorMsg(error?.message || data?.error || "Action rejected by server");
       } else {
-        // Fallback optimistic local update
-        setWhotCallCard(card);
-        const updatedHand = myHand.filter((_, i) => i !== index);
-        setMyHand(updatedHand);
-        if (updatedHand.length === 0) {
-          playSound('win');
-          handleCompleteMatch('win');
-        }
+        await fetchState();
       }
-    } catch {
-      setWhotCallCard(card);
-      const updatedHand = myHand.filter((_, i) => i !== index);
-      setMyHand(updatedHand);
-      if (updatedHand.length === 0) handleCompleteMatch('win');
+    } catch (err) {
+      setErrorMsg("Network timeout. Check your connection.");
+    } finally {
+      setSubmitting(false);
+      setShowWhotModal(false);
+      setShowQuitConfirm(false);
+      setPendingCardId(null);
     }
-    setTurnNumber((prev) => prev + 1);
   };
 
-  // 3. Draw from Market via whot-action Edge Function
-  const handleDrawCard = async () => {
-    playSound('click');
-    try {
-      const { data, error } = await supabase.functions.invoke('whot-action', {
-        body: {
-          match_id: match.id,
-          action: 'draw_card',
-        },
-      });
+  const handleCardClick = (card) => {
+    if (!isCardPlayable(card)) return;
 
-      if (!error && data && data.drawn_card) {
-        setMyHand((prev) => [...prev, data.drawn_card]);
-        setActionLog('Drew card from General Market.');
-      } else {
-        const shapes: Card['shape'][] = ['★', '▲', '■', '●'];
-        const randomShape = shapes[Math.floor(Math.random() * shapes.length)];
-        const randomNum = Math.floor(1 + Math.random() * 14);
-        setMyHand((prev) => [...prev, { id: `draw_${Date.now()}`, shape: randomShape, num: randomNum }]);
-        setActionLog('Drew card from General Market.');
-      }
-    } catch {
-      const shapes: Card['shape'][] = ['★', '▲', '■', '●'];
-      const randomShape = shapes[Math.floor(Math.random() * shapes.length)];
-      setMyHand((prev) => [...prev, { id: `draw_${Date.now()}`, shape: randomShape, num: 5 }]);
+    if (card.number === 20) {
+      setPendingCardId(card.id);
+      setShowWhotModal(true);
+    } else {
+      handleAction({ action: "play_card", card_id: card.id });
     }
-    setTurnNumber((prev) => prev + 1);
   };
 
-  // 4. Forfeiting via whot-action Edge Function
-  const handleForfeitMatch = async () => {
-    if (settling || gameStatus === 'completed') return;
-    setSettling(true);
-    try {
-      await supabase.functions.invoke('whot-action', {
-        body: {
-          match_id: match.id,
-          action: 'forfeit',
-        },
-      });
-    } catch {
-      // Fallback
-    }
-    setMatchResult('forfeit');
-    setGameStatus('completed');
-    playSound('lose');
-    await onSettle(match.id, 'loss');
-    setSettling(false);
+  const handleSelectShape = (shape) => {
+    if (!pendingCardId) return;
+    handleAction({
+      action: "play_card",
+      card_id: pendingCardId,
+      called_shape: shape,
+    });
   };
 
-  const handleCompleteMatch = async (result: 'win' | 'loss') => {
-    if (settling || gameStatus === 'completed') return;
-    setSettling(true);
-    setMatchResult(result);
-    setGameStatus('completed');
-    await onSettle(match.id, result);
-    setSettling(false);
+  const handleForfeit = () => {
+    handleAction({ action: "forfeit" });
   };
 
-  const stake = match.stakeCoins;
-  const pot = stake * 2;
-  const fee = Math.floor(pot * 0.1);
-  const payout = pot - fee;
-  const netWalletChange = matchResult === 'win' ? payout - stake : -stake;
+  // Clock formatters
+  const formatMatchTime = (secs) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[85vh] bg-[#0A0A0A] text-white">
+        <div className="w-10 h-10 border-4 border-white/10 border-t-[#F5A623] rounded-full animate-spin" />
+        <p className="mt-4 text-xs font-mono text-[#F5A623] tracking-widest uppercase">
+          Dealing Whot Hand...
+        </p>
+      </div>
+    );
+  }
+
+  const topCard = gameState?.top_discard;
+  const isMyTurn = Boolean(gameState?.is_my_turn);
+  const myHand = gameState?.my_hand || [];
+  const oppCount = gameState?.opponent_card_count ?? 5;
+  const marketCount = gameState?.market_count ?? 0;
+  const isGameOver = gameState?.status === "completed";
+  const amIWinner = gameState?.winner_id === currentUserId;
+  const isDraw = gameState?.status === "completed" && !gameState?.winner_id;
+
+  // Financial Ledger Math (10% Platform Rake)
+  const potAmount = stake * 2;
+  const platformFee = Math.round(potAmount * 0.10);
+  const netPayout = potAmount - platformFee;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-20 animate-fade-in">
+    <div className="flex flex-col justify-between w-full max-w-lg mx-auto h-[100dvh] max-h-[100dvh] bg-[#0A0A0A] text-white font-sans overflow-hidden p-3 select-none">
       
-      {/* ================= TOP HEADER WITH QUIT BUTTON ================= */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-[#1A1813] via-[#121212] to-[#0A0A0A] border border-[#F5A623]/30 shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#DC2626]/20 text-[#DC2626] border border-[#DC2626]/40 uppercase flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#DC2626] animate-pulse" />
-              LIVE NAIJA WHOT DUEL
-            </span>
-            <span className="text-xs font-mono text-neutral-400">
-              ID: <strong className="text-white">{match.id}</strong>
-            </span>
+      {/* =====================================================================
+          1. TOP UTILITY BAR (Match Clock, Clocks, Quit Button)
+          ===================================================================== */}
+      <header className="flex items-center justify-between px-3 py-2 bg-[#141414] border border-white/[0.08] rounded-xl shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-[10px] font-mono text-white/50 uppercase tracking-widest">
+            WHOT 1v1
+          </span>
+        </div>
+
+        {/* 10-Minute Match Clock */}
+        <div className="flex items-center gap-1.5 px-3 py-1 bg-black/60 border border-white/[0.06] rounded-lg">
+          <span className="text-[10px] font-mono text-white/40">MATCH</span>
+          <span
+            className={`font-mono font-bold text-xs ${
+              matchTimeLeft <= 60 ? "text-[#DC2626] animate-pulse" : "text-[#F5A623]"
+            }`}
+          >
+            {formatMatchTime(matchTimeLeft)}
+          </span>
+        </div>
+
+        {/* In-Game Quit / Forfeit Trigger */}
+        {!isGameOver && (
+          <button
+            onClick={() => setShowQuitConfirm(true)}
+            disabled={submitting}
+            className="px-2.5 py-1 text-[11px] font-bold text-[#DC2626] bg-[#DC2626]/10 border border-[#DC2626]/30 hover:bg-[#DC2626]/20 rounded-lg transition"
+          >
+            Quit
+          </button>
+        )}
+      </header>
+
+      {/* =====================================================================
+          2. OPPONENT & TURN STATUS STRIP
+          ===================================================================== */}
+      <div className="flex items-center justify-between px-4 py-2 bg-[#141414]/60 border border-white/[0.04] rounded-xl my-2 shrink-0">
+        {/* Opponent Card Count */}
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-10 bg-[#1E1E1E] border border-white/20 rounded-md flex items-center justify-center font-mono font-black text-xs text-white/70 shadow-inner">
+            {oppCount}
           </div>
-          <h2 className="text-xl sm:text-2xl font-black text-white font-mono tracking-tight">
-            Naija Whot Head-to-Head
-          </h2>
-          <div className="flex items-center gap-3 text-xs font-mono text-neutral-300 mt-1">
-            <span>Stake: <strong className="text-[#F5A623]">{stake} AC (₦{(stake * 10).toLocaleString()})</strong></span>
-            <span>·</span>
-            <span>Total Pot: <strong className="text-white">{pot} AC</strong></span>
+          <div>
+            <span className="text-[10px] font-mono text-white/40 block">OPPONENT</span>
+            <span className="text-xs font-bold text-white/80">{oppCount} Cards</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className="p-2.5 rounded-xl bg-black/60 border border-white/[0.08] text-neutral-300 hover:text-white transition-colors cursor-pointer"
-            title="Toggle Sound"
+        {/* 30-Second Turn Watchdog Indicator */}
+        <div className="text-right">
+          <div
+            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold ${
+              isMyTurn
+                ? "bg-[#F5A623]/15 border border-[#F5A623] text-[#F5A623]"
+                : "bg-white/[0.04] border border-white/[0.08] text-white/40"
+            }`}
           >
-            {soundEnabled ? <Volume2 className="w-4 h-4 text-[#F5A623]" /> : <VolumeX className="w-4 h-4 text-neutral-500" />}
-          </button>
-
-          <div className="p-2.5 px-3 rounded-xl bg-black/60 border border-white/[0.08] text-center font-mono">
-            <span className="text-[10px] text-neutral-400 block uppercase">Clock</span>
-            <span className="text-sm font-black text-[#F5A623] tracking-widest tabular-nums">
-              {formatTimer(matchSeconds)}
+            <span>{isMyTurn ? "YOUR TURN" : "OPPONENT"}</span>
+            <span>•</span>
+            <span className={turnTimeLeft <= 5 ? "text-[#DC2626] animate-bounce" : ""}>
+              {turnTimeLeft}s
             </span>
           </div>
-
-          {gameStatus === 'playing' && (
-            <button
-              type="button"
-              onClick={() => {
-                playSound('click');
-                setShowQuitModal(true);
-              }}
-              className="border border-[#DC2626]/30 text-[#DC2626] hover:bg-[#DC2626]/10 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
-            >
-              <XCircle className="w-4 h-4" />
-              <span>Quit Match</span>
-            </button>
-          )}
         </div>
       </div>
 
-      {/* ================= GAMEPLAY BOARD OR RECAP SCREEN ================= */}
-      {gameStatus === 'playing' ? (
-        <div className="p-6 sm:p-8 rounded-3xl bg-[#0A0A0A] border border-white/[0.08] shadow-2xl space-y-8">
-          
-          <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
-            <div className="flex items-center justify-between w-full max-w-md text-xs font-mono">
-              <span className="text-neutral-400">Opponent: <strong className="text-white">{match.opponentName}</strong></span>
-              <span className="text-red-400 font-bold">{oppCardCount} Cards Left</span>
+      {/* Banners (Penalty or Called Shape) */}
+      {gameState?.called_shape && (
+        <div className="flex items-center justify-center gap-2 py-1.5 px-3 bg-[#F5A623]/10 border border-[#F5A623]/30 rounded-lg text-xs shrink-0">
+          <span className="text-white/60">Required Shape:</span>
+          <span className="font-bold uppercase text-[#F5A623] flex items-center gap-1">
+            <ShapeIcon shape={gameState.called_shape} size={14} />
+            {gameState.called_shape}
+          </span>
+        </div>
+      )}
+
+      {gameState?.pending_draw_count > 0 && (
+        <div className="py-1.5 px-3 bg-[#DC2626]/15 border border-[#DC2626]/40 text-[#FF6B6B] text-center font-bold text-xs rounded-lg animate-pulse shrink-0">
+          ⚠️ Defend Pick {gameState.pending_draw_count} or Draw!
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="py-1 px-3 bg-[#DC2626] text-white text-center font-semibold text-xs rounded-lg shrink-0">
+          {errorMsg}
+        </div>
+      )}
+
+      {/* =====================================================================
+          3. BOARD CENTER: GENERAL MARKET & TOP DISCARD PILE
+          ===================================================================== */}
+      <div className="flex items-center justify-center gap-8 my-auto py-2">
+        {/* Draw Pile (General Market) */}
+        <div
+          onClick={() => isMyTurn && !submitting && handleAction({ action: "draw_card" })}
+          className={`w-24 h-36 bg-[#161616] border-2 rounded-2xl flex flex-col items-center justify-between p-2.5 transition select-none ${
+            isMyTurn
+              ? "border-dashed border-[#F5A623] cursor-pointer hover:scale-105 active:scale-95 shadow-lg shadow-[#F5A623]/10"
+              : "border-white/10 opacity-40 cursor-not-allowed"
+          }`}
+        >
+          <div className="text-[10px] font-mono font-extrabold text-[#F5A623] tracking-widest text-center mt-1">
+            MARKET
+          </div>
+          <div className="w-8 h-8 rounded-full bg-white/[0.05] flex items-center justify-center font-mono font-black text-xs text-white/50">
+            {marketCount}
+          </div>
+          <span className="text-[9px] font-bold text-white/40 tracking-wider">
+            {isMyTurn ? "TAP DRAW" : "WAIT"}
+          </span>
+        </div>
+
+        {/* Top Active Discard Pile Card */}
+        {topCard ? (
+          <div className="w-24 h-36 bg-[#181818] border-2 border-white/20 rounded-2xl flex flex-col justify-between p-2.5 shadow-2xl relative select-none">
+            {/* Top-Left Rank & Shape */}
+            <div className="flex items-center justify-between">
+              <span
+                style={{ color: SHAPE_COLORS[topCard.shape] }}
+                className="font-mono font-black text-sm"
+              >
+                {topCard.number === 20 ? "W" : topCard.number}
+              </span>
+              <ShapeIcon shape={topCard.shape} size={14} />
             </div>
-            <div className="flex justify-center gap-1.5">
-              {Array.from({ length: oppCardCount }).map((_, i) => (
-                <div
-                  key={i}
-                  className="w-10 h-14 rounded-lg bg-gradient-to-b from-[#DC2626] to-[#7F1D1D] border border-white/20 shadow-md flex items-center justify-center text-[9px] font-mono text-white/50 -ml-2 first:ml-0"
-                >
-                  WHOT
-                </div>
-              ))}
+
+            {/* Large Center Shape */}
+            <div className="flex items-center justify-center my-auto">
+              <ShapeIcon shape={topCard.shape} size={42} />
+            </div>
+
+            {/* Bottom-Right Inverted Rank & Shape */}
+            <div className="flex items-center justify-between rotate-180">
+              <span
+                style={{ color: SHAPE_COLORS[topCard.shape] }}
+                className="font-mono font-black text-sm"
+              >
+                {topCard.number === 20 ? "W" : topCard.number}
+              </span>
+              <ShapeIcon shape={topCard.shape} size={14} />
             </div>
           </div>
+        ) : (
+          <div className="w-24 h-36 bg-[#161616] border border-dashed border-white/10 rounded-2xl" />
+        )}
+      </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-8 py-4">
-            <div className="text-center space-y-2">
-              <button
-                type="button"
-                onClick={handleDrawCard}
-                className="w-24 h-36 rounded-xl bg-gradient-to-br from-neutral-800 to-neutral-900 border-2 border-white/20 hover:border-[#F5A623] flex flex-col items-center justify-center shadow-2xl transition-transform hover:scale-105 cursor-pointer group"
+      {/* =====================================================================
+          4. PLAYER HAND (SINGLE HORIZONTAL SCROLLING ROW ONLY)
+          ===================================================================== */}
+      <footer className="w-full bg-[#141414] border border-white/[0.08] rounded-2xl p-3 shrink-0">
+        <div className="flex items-center justify-between mb-2 px-1">
+          <span className="text-xs font-mono font-bold text-white/60">
+            YOUR HAND ({myHand.length})
+          </span>
+          <span className="text-[11px] text-[#F5A623] font-medium">
+            {isMyTurn ? "Tap a highlighted card" : "Waiting for opponent move..."}
+          </span>
+        </div>
+
+        {/* Single Row Container: No Vertical Stacking */}
+        <div className="flex gap-2.5 overflow-x-auto pb-2 pt-2 px-1 max-w-full scrollbar-none items-end min-h-[140px]">
+          {myHand.map((card) => {
+            const playable = isCardPlayable(card);
+            const cardColor = SHAPE_COLORS[card.shape] || "#FFFFFF";
+
+            return (
+              <div
+                key={card.id}
+                onClick={() => handleCardClick(card)}
+                className={`w-20 h-32 bg-[#181818] rounded-xl flex flex-col justify-between p-2 shrink-0 transition-all select-none ${
+                  playable
+                    ? "border-2 border-[#F5A623] -translate-y-2 cursor-pointer shadow-lg shadow-[#F5A623]/25 hover:scale-105 active:scale-95"
+                    : isMyTurn
+                    ? "border border-white/10 opacity-30 cursor-not-allowed"
+                    : "border border-white/10 opacity-60 cursor-not-allowed"
+                }`}
               >
-                <Zap className="w-6 h-6 text-[#F5A623] mb-1 group-hover:scale-110 transition-transform" />
-                <span className="text-xs font-mono font-black text-white">MARKET</span>
-                <span className="text-[10px] text-neutral-400 mt-1">Tap to Draw</span>
-              </button>
-            </div>
-
-            <div className="text-center space-y-2">
-              <span className="text-[11px] font-mono text-neutral-400 uppercase tracking-widest block">Table Call Card</span>
-              <div className="w-28 h-40 rounded-2xl bg-amber-50 border-4 border-[#F5A623] shadow-2xl flex flex-col justify-between p-3 text-neutral-900 font-mono font-black animate-scale-in">
-                <div className="text-sm flex justify-between">
-                  <span>{whotCallCard.num}</span>
-                  <span>{whotCallCard.shape}</span>
+                {/* Top Corner */}
+                <div className="flex items-center justify-between">
+                  <span style={{ color: cardColor }} className="font-mono font-black text-xs">
+                    {card.number === 20 ? "W" : card.number}
+                  </span>
+                  <ShapeIcon shape={card.shape} size={12} />
                 </div>
-                <div className="text-5xl text-center">{whotCallCard.shape}</div>
-                <div className="text-sm flex justify-between rotate-180">
-                  <span>{whotCallCard.num}</span>
-                  <span>{whotCallCard.shape}</span>
+
+                {/* Center SVG Icon */}
+                <div className="flex items-center justify-center my-auto">
+                  <ShapeIcon shape={card.shape} size={30} />
+                </div>
+
+                {/* Bottom Corner */}
+                <div className="flex items-center justify-between rotate-180">
+                  <span style={{ color: cardColor }} className="font-mono font-black text-xs">
+                    {card.number === 20 ? "W" : card.number}
+                  </span>
+                  <ShapeIcon shape={card.shape} size={12} />
                 </div>
               </div>
-            </div>
-          </div>
+            );
+          })}
+        </div>
+      </footer>
 
-          <div className="max-w-md mx-auto p-3 rounded-xl bg-black/60 border border-white/[0.08] text-center text-xs font-mono text-[#F5A623]">
-            {actionLog}
-          </div>
-
-          <div className="space-y-3 pt-4 border-t border-white/[0.08]">
-            <div className="flex items-center justify-between text-xs font-mono px-2">
-              <span className="text-emerald-400 font-bold uppercase">Your Hand ({myHand.length} Cards)</span>
-              <span className="text-neutral-400">Tap matching card to play</span>
-            </div>
-
-            <div className="flex flex-wrap justify-center gap-3 pt-2">
-              {myHand.map((card, idx) => (
+      {/* =====================================================================
+          5. MODAL: WHOT 20 SHAPE SELECTOR
+          ===================================================================== */}
+      {showWhotModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+          <div className="w-full max-w-xs bg-[#141414] border border-white/[0.1] rounded-2xl p-6 text-center shadow-2xl">
+            <h3 className="text-base font-black text-[#F5A623] mb-1">DECLARE SHAPE</h3>
+            <p className="text-xs text-white/50 mb-5">Choose the shape your opponent must match:</p>
+            <div className="grid grid-cols-3 gap-2.5">
+              {["circle", "triangle", "cross", "square", "star"].map((s) => (
                 <button
-                  key={card.id || idx}
-                  type="button"
-                  onClick={() => handlePlayCard(card, idx)}
-                  className="w-16 h-24 sm:w-20 sm:h-28 rounded-2xl bg-amber-50 hover:bg-amber-100 hover:-translate-y-3 border-2 border-black/20 hover:border-[#F5A623] shadow-xl flex flex-col justify-between p-2 text-neutral-900 font-mono font-black transition-all cursor-pointer group"
+                  key={s}
+                  onClick={() => handleSelectShape(s)}
+                  disabled={submitting}
+                  className="flex flex-col items-center justify-center p-3 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:border-[#F5A623] hover:bg-[#F5A623]/10 transition"
                 >
-                  <div className="text-xs flex justify-between">
-                    <span>{card.num}</span>
-                    <span>{card.shape}</span>
-                  </div>
-                  <div className="text-3xl sm:text-4xl text-center">
-                    {card.shape}
-                  </div>
-                  <div className="text-xs flex justify-between rotate-180">
-                    <span>{card.num}</span>
-                    <span>{card.shape}</span>
-                  </div>
+                  <ShapeIcon shape={s} size={28} />
+                  <span className="text-[10px] font-bold text-white capitalize mt-1.5">{s}</span>
                 </button>
               ))}
             </div>
           </div>
-
-        </div>
-      ) : (
-        /* ================= POST-MATCH SUMMARY SCREEN ================= */
-        <div className="p-6 sm:p-10 rounded-3xl bg-gradient-to-b from-[#16130E] via-[#0D0D0D] to-[#0A0A0A] border-2 border-[#F5A623]/40 shadow-2xl space-y-8 animate-scale-in">
-          
-          <div className="text-center space-y-3 relative">
-            <div className={`absolute inset-0 blur-3xl pointer-events-none rounded-full ${
-              matchResult === 'win' ? 'bg-emerald-500/10' : 'bg-[#DC2626]/10'
-            }`} />
-
-            <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center shadow-2xl ${
-              matchResult === 'win' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-[#DC2626]/20 text-[#DC2626] border border-[#DC2626]/40'
-            }`}>
-              {matchResult === 'win' ? <Trophy className="w-8 h-8 stroke-[2.5]" /> : <Flame className="w-8 h-8 stroke-[2.5]" />}
-            </div>
-
-            <div>
-              <h3 className={`text-2xl sm:text-3xl font-black font-mono tracking-tight ${
-                matchResult === 'win' ? 'text-emerald-400' : 'text-[#DC2626]'
-              }`}>
-                {matchResult === 'win' && 'VICTORY 🏆'}
-                {matchResult === 'loss' && 'DEFEAT 💀'}
-                {matchResult === 'forfeit' && 'MATCH FORFEITED 💀'}
-              </h3>
-              <p className="text-xs sm:text-sm font-mono text-neutral-300 mt-1 max-w-md mx-auto">
-                {matchResult === 'win'
-                  ? 'You outplayed your opponent and cleared your hand!'
-                  : matchResult === 'forfeit'
-                  ? 'You forfeited the match mid-game. Stake awarded to opponent.'
-                  : 'Your opponent emptied their hand first. Better luck next round!'}
-              </p>
-            </div>
-          </div>
-
-          <div className="p-5 sm:p-6 rounded-2xl bg-black/60 border border-white/[0.08] space-y-4 font-mono">
-            <div className="flex items-center justify-between text-xs text-neutral-400 border-b border-white/[0.06] pb-3">
-              <span className="uppercase font-bold tracking-wider text-[#F5A623]">Financial Ledger & 10% Rake Math</span>
-              <span className="text-[10px]">Provably Fair</span>
-            </div>
-
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between text-neutral-300">
-                <span>Staked Amount:</span>
-                <span className="font-bold text-white">{stake} Coins (₦{(stake * 10).toLocaleString()})</span>
-              </div>
-              <div className="flex justify-between text-neutral-300">
-                <span>Total Pot (1v1):</span>
-                <span className="font-bold text-white">{pot} Coins</span>
-              </div>
-              <div className="flex justify-between text-neutral-300">
-                <span>Platform Fee (10% Flat Rake):</span>
-                <span className="font-bold text-red-400">-{fee} Coins</span>
-              </div>
-              <div className="flex justify-between text-neutral-300 pt-2 border-t border-white/[0.06]">
-                <span>Net Winner Payout:</span>
-                <span className="font-bold text-emerald-400">+{payout} Coins (₦{(payout * 10).toLocaleString()})</span>
-              </div>
-              <div className="flex justify-between text-neutral-300">
-                <span>Net Wallet Change:</span>
-                <span className={`font-bold ${netWalletChange >= 0 ? 'text-emerald-400' : 'text-[#DC2626]'}`}>
-                  {netWalletChange >= 0 ? `+${netWalletChange}` : netWalletChange} Coins
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3 text-center font-mono text-xs">
-            <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-              <span className="text-[10px] text-neutral-400 uppercase block">Total Turns</span>
-              <span className="text-base font-black text-white">{turnNumber}</span>
-            </div>
-            <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-              <span className="text-[10px] text-neutral-400 uppercase block">Final Hands</span>
-              <span className="text-xs font-black text-[#F5A623]">{myHand.length} vs {oppCardCount}</span>
-            </div>
-            <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-              <span className="text-[10px] text-neutral-400 uppercase block">Result</span>
-              <span className={`text-xs font-black uppercase ${matchResult === 'win' ? 'text-emerald-400' : 'text-[#DC2626]'}`}>
-                {matchResult}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-4">
-            <button
-              type="button"
-              onClick={() => {
-                playSound('click');
-                if (onPlayAgain) onPlayAgain();
-                else onExit();
-              }}
-              className="w-full sm:w-auto py-3.5 px-6 rounded-xl text-xs font-black bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-black hover:brightness-105 transition-all shadow-lg shadow-[#F5A623]/20 flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <Trophy className="w-4 h-4 fill-current" />
-              <span>Play Another Whot Match ⚔️</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                playSound('click');
-                onExit();
-              }}
-              className="w-full sm:w-auto py-3.5 px-6 rounded-xl text-xs font-bold bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/[0.12] transition-colors flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <ArrowRight className="w-4 h-4 text-[#F5A623]" />
-              <span>Back to Arena</span>
-            </button>
-          </div>
-
         </div>
       )}
 
-      {/* ================= QUIT & FORFEIT MODAL ================= */}
-      {showQuitModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
-          <div className="max-w-md w-full p-6 sm:p-8 rounded-3xl bg-[#14120F] border-2 border-[#DC2626]/50 shadow-2xl space-y-6 text-center">
-            
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-[#DC2626]/20 border border-[#DC2626]/40 flex items-center justify-center text-[#DC2626] shadow-lg">
-              <ShieldAlert className="w-8 h-8 stroke-[2.5]" />
+      {/* =====================================================================
+          6. MODAL: QUIT / FORFEIT CONFIRMATION
+          ===================================================================== */}
+      {showQuitConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+          <div className="w-full max-w-xs bg-[#141414] border border-[#DC2626]/40 rounded-2xl p-6 text-center shadow-2xl">
+            <div className="w-10 h-10 rounded-full bg-[#DC2626]/10 border border-[#DC2626]/30 text-[#DC2626] font-bold flex items-center justify-center mx-auto mb-3">
+              ⚠️
             </div>
-
+            <h3 className="text-base font-black text-white mb-1">Quit & Forfeit Match?</h3>
+            <p className="text-xs text-white/50 mb-5 leading-relaxed">
+              If you leave now, your stake is forfeited and your opponent wins the pot.
+            </p>
             <div className="space-y-2">
-              <h3 className="text-xl font-black text-white font-mono">Quit & Forfeit Match?</h3>
-              <p className="text-xs font-mono text-neutral-300 leading-relaxed">
-                Leaving mid-game forfeits your stake. Your opponent will automatically win and receive the pot.
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
               <button
-                type="button"
-                onClick={() => {
-                  playSound('click');
-                  setShowQuitModal(false);
-                }}
-                className="w-full py-3 rounded-xl text-xs font-bold bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/[0.12] transition-colors cursor-pointer"
+                onClick={handleForfeit}
+                disabled={submitting}
+                className="w-full py-2.5 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-extrabold text-xs rounded-xl transition"
+              >
+                {submitting ? "Forfeiting..." : "Yes, Forfeit Match"}
+              </button>
+              <button
+                onClick={() => setShowQuitConfirm(false)}
+                className="w-full py-2 bg-white/[0.05] text-white/70 text-xs font-semibold rounded-xl hover:bg-white/[0.1] transition"
               >
                 Keep Playing
               </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowQuitModal(false);
-                  handleForfeitMatch();
-                }}
-                className="w-full py-3 rounded-xl text-xs font-black bg-[#DC2626] hover:bg-[#B91C1C] text-white shadow-lg shadow-[#DC2626]/30 transition-all cursor-pointer"
-              >
-                Yes, Forfeit Match
-              </button>
             </div>
-
           </div>
         </div>
       )}
 
+      {/* =====================================================================
+          7. POST-MATCH SUMMARY & FINANCIAL BREAKDOWN SCREEN
+          ===================================================================== */}
+      {isGameOver && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md p-4">
+          <div className="w-full max-w-sm bg-[#141414] border border-white/[0.1] rounded-2xl p-6 text-center shadow-2xl space-y-4">
+            {/* Victory / Defeat Badge */}
+            <div className="text-4xl">
+              {isDraw ? "🤝" : amIWinner ? "🏆" : "💀"}
+            </div>
+
+            <div>
+              <h2
+                className={`text-2xl font-black ${
+                  isDraw
+                    ? "text-[#F5A623]"
+                    : amIWinner
+                    ? "text-emerald-400"
+                    : "text-[#DC2626]"
+                }`}
+              >
+                {isDraw ? "MATCH DRAW" : amIWinner ? "VICTORY!" : "DEFEAT"}
+              </h2>
+              <p className="text-xs text-white/50 mt-1">
+                {isDraw
+                  ? "Identical penalty points on time-out. Stakes 100% refunded."
+                  : amIWinner
+                  ? "You outplayed your opponent! 90% payout credited."
+                  : "Match concluded. Better luck on the next round!"}
+              </p>
+            </div>
+
+            {/* 10% Flat Rake Financial Breakdown */}
+            <div className="p-4 bg-black/50 border border-white/[0.06] rounded-xl text-left space-y-2 font-mono text-xs">
+              <div className="flex justify-between text-white/50">
+                <span>Staked Stake:</span>
+                <span>{stake} Coins</span>
+              </div>
+              <div className="flex justify-between text-white/50">
+                <span>Total Pot:</span>
+                <span>{potAmount} Coins</span>
+              </div>
+              <div className="flex justify-between text-[#DC2626]/80">
+                <span>Platform Rake (10%):</span>
+                <span>-{isDraw ? 0 : platformFee} Coins</span>
+              </div>
+              <div className="pt-2 border-t border-white/[0.08] flex justify-between font-bold text-sm">
+                <span className="text-white">Net Payout:</span>
+                <span className={amIWinner ? "text-emerald-400" : isDraw ? "text-white" : "text-white/40"}>
+                  {amIWinner ? `+${netPayout} Coins (₦${(netPayout * 10).toLocaleString()})` : isDraw ? `${stake} Coins` : "0 Coins"}
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={onExit}
+              className="w-full py-3.5 bg-gradient-to-r from-[#F5A623] to-[#E0921A] text-black font-extrabold text-sm rounded-xl shadow-lg hover:brightness-110 active:scale-[0.98] transition"
+            >
+              Return to Arena
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
-};
+}
+export default WhotGame;

@@ -626,12 +626,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <span className="text-xs font-mono uppercase tracking-wider text-[#F5A623] font-semibold block mb-2">
               Architecture & Features
             </span>
-            <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight">
-              Engineered for Nigerian Players
-            </h2>
-            <p className="text-sm text-neutral-400 mt-2">
-              Instant challenges, fallback bots, and transparent math designed for seamless mobile play.
-            </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -676,10 +670,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </p>
               </div>
 
-              <div className="pt-6 mt-6 border-t border-white/[0.06] flex items-center justify-between text-xs font-mono text-neutral-400">
-                <span>Maximum Queue Wait:</span>
-                <span className="text-[#F5A623] font-bold">Under 2 Minutes</span>
-              </div>
             </div>
 
             {/* Feature 3: Transparent 10% Platform Rake */}

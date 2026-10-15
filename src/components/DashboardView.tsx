@@ -152,6 +152,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // GAME STATE REHYDRATION (Strictly filter by user_id and in_progress)
   useEffect(() => {
     async function rehydrateGameState() {
+      // 1. Golden rule: if no locked balance, there is no active match
+      const isLocked = (wallet?.locked_coins ?? 0) > 0 || (realWallet?.locked_balance ?? 0) > 0;
+      
+      if (!isLocked) {
+        setActiveMatchId(null);
+        setActiveMatch(null);
+        setArenaSubView('hub');
+        localStorage.removeItem('apex_active_match_id');
+        return;
+      }
+
       if (!user?.id) return;
 
       const { data: participants, error } = await supabase
@@ -163,6 +174,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       if (error || !participants || participants.length === 0) {
         setActiveMatchId(null);
         setActiveMatch(null);
+        setArenaSubView('hub');
         return;
       }
 
@@ -182,7 +194,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
 
     rehydrateGameState();
-  }, [user]);
+  }, [user, wallet, realWallet]);
 
   const [joining, setJoining] = useState(false);
   const [activeQueueId, setActiveQueueId] = useState<string | null>(null);
